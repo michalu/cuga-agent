@@ -16,6 +16,7 @@ from .local import LocalExecutor, LocalSandboxExecutor
 from .e2b import E2BExecutor
 from .docker import DockerExecutor
 from .opensandbox import OpenSandboxExecutor
+from .execd import ExecdExecutor
 from .native import NativeSandboxExecutor
 from .base_executor import BaseExecutor, RemoteExecutor
 from cuga.backend.cuga_graph.nodes.cuga_agent_core.policy.execution_policy import ExecutionPlan
@@ -69,6 +70,7 @@ class CodeExecutor:
     _e2b_executor: RemoteExecutor = None
     _docker_executor: RemoteExecutor = None
     _opensandbox_executor: RemoteExecutor = None
+    _execd_executor: RemoteExecutor = None
     _native_executor: NativeSandboxExecutor = None
 
     @classmethod
@@ -102,6 +104,12 @@ class CodeExecutor:
         return cls._opensandbox_executor
 
     @classmethod
+    def _get_execd_executor(cls) -> RemoteExecutor:
+        if cls._execd_executor is None:
+            cls._execd_executor = ExecdExecutor()
+        return cls._execd_executor
+
+    @classmethod
     def _get_native_executor(cls) -> NativeSandboxExecutor:
         if cls._native_executor is None:
             cls._native_executor = NativeSandboxExecutor()
@@ -115,7 +123,7 @@ class CodeExecutor:
         state: AgentState,
         thread_id: Optional[str] = None,
         apps_list: Optional[List[str]] = None,
-        mode: Optional[Literal['local', 'e2b', 'opensandbox']] = None,
+        mode: Optional[Literal['local', 'e2b', 'opensandbox', 'execd']] = None,
         plan: Optional[ExecutionPlan] = None,
         variable_manager: Optional[Any] = None,
     ) -> tuple[str, dict[str, Any]]:
@@ -127,7 +135,7 @@ class CodeExecutor:
             state: AgentState instance with variables_manager
             thread_id: Thread ID for sandbox caching (optional)
             apps_list: List of app names for parsing tool names correctly (optional)
-            mode: Execution mode ('local', 'e2b', or 'opensandbox'). If None, uses
+            mode: Execution mode ('local', 'e2b', 'opensandbox' or 'execd'). If None, uses
                 ``plan.python_backend`` when a plan is given, else settings.
             plan: Resolved ExecutionPlan; its ``python_backend`` selects the
                 Python execution path unless ``mode`` is given explicitly.
@@ -191,7 +199,7 @@ class CodeExecutor:
         *,
         thread_id: Optional[str] = None,
         apps_list: Optional[List[str]] = None,
-        mode: Optional[Literal['local', 'e2b', 'opensandbox']] = None,
+        mode: Optional[Literal['local', 'e2b', 'opensandbox', 'execd']] = None,
         plan: Optional[ExecutionPlan] = None,
         variable_manager: Optional[Any] = None,
         skills_on: bool,
@@ -199,17 +207,32 @@ class CodeExecutor:
         result = ""
 
         if mode is None:
-            if plan is not None:
-                mode = 'e2b' if plan.python_backend == 'e2b' else 'local'
+            configured = getattr(settings.advanced_features, 'sandbox_mode', None)
+            if plan is not None and plan.python_backend in ('e2b', 'execd'):
+                # A plan naming its backend outranks the global setting.
+                mode = plan.python_backend
+            elif configured == 'execd':
+                mode = 'execd'
+            elif plan is not None:
+                mode = 'local'
             else:
                 mode = 'e2b' if settings.advanced_features.e2b_sandbox else 'local'
 
         # Force local execution for short find_tools or load_skill calls
         code_lines = [line.strip() for line in code.split('\n') if line.strip()]
+        forced_local = False
         if len(code_lines) <= 3 and 'await find_tools' in code:
             mode = 'local'
+            forced_local = True
         if skills_on and 'load_skill' in code:
             mode = 'local'
+            forced_local = True
+
+        logger.info(
+            f"[execd:route] eval_with_tools_async mode={mode} thread={thread_id} "
+            f"code_lines={len(code_lines)}"
+            + (" (forced local: find_tools/load_skill)" if forced_local else "")
+        )
 
         # opensandbox: Python runs locally with run_command in context (forwarded to sandbox)
         # Security checks must run for every execution mode, including E2B turns.
@@ -241,8 +264,8 @@ class CodeExecutor:
         SecurityValidator.validate_wrapped_code(wrapped_code)
 
         try:
-            if mode == 'e2b':
-                executor = cls._get_e2b_executor()
+            if mode in ('e2b', 'execd'):
+                executor = cls._get_e2b_executor() if mode == 'e2b' else cls._get_execd_executor()
                 result, parsed_locals = await executor.execute_for_cuga_lite(
                     wrapped_code=wrapped_code,
                     context_locals=_locals,
@@ -342,12 +365,14 @@ import json
 
     @classmethod
     async def _execute_remotely_for_code_agent(
-        cls, wrapped_code: str, state: AgentState, mode: Literal['e2b', 'docker', 'opensandbox']
+        cls, wrapped_code: str, state: AgentState, mode: Literal['e2b', 'docker', 'opensandbox', 'execd']
     ) -> tuple[str, dict[str, Any]]:
         """Execute wrapped code in remote executor for CodeAgent."""
         try:
             if mode == 'e2b':
                 executor = cls._get_e2b_executor()
+            elif mode == 'execd':
+                executor = cls._get_execd_executor()
             elif mode == 'opensandbox':
                 executor = cls._get_opensandbox_executor()
             else:  # docker
@@ -389,7 +414,7 @@ import json
         cls,
         code: str,
         state: AgentState,
-        mode: Optional[Literal['local', 'e2b', 'docker', 'opensandbox']] = None,
+        mode: Optional[Literal['local', 'e2b', 'docker', 'opensandbox', 'execd']] = None,
     ) -> tuple[str, dict[str, Any]]:
         """Execute code for CodeAgent - expects JSON output on last line only.
 
@@ -402,7 +427,7 @@ import json
         Args:
             code: Python code to execute
             state: AgentState instance with variables_manager
-            mode: Execution mode ('local', 'e2b', 'docker', or 'opensandbox'). If None, uses settings.
+            mode: Execution mode ('local', 'e2b', 'docker', 'opensandbox' or 'execd'). If None, uses settings.
             'opensandbox' is remapped to 'local' here because OpenSandboxExecutor.execute_for_code_agent is not implemented.
 
         Returns:
@@ -412,7 +437,13 @@ import json
         skills_token = set_skills_relaxed_execution(skills_on)
         try:
             if mode is None:
-                if skills_on:
+                configured = getattr(settings.advanced_features, 'sandbox_mode', None)
+                if configured == 'execd':
+                    # Same precedence as _eval_with_tools_async_impl: an execd
+                    # deployment routes every Python channel to the sandbox, so
+                    # CodeAgent must not silently fall back to in-process exec.
+                    mode = 'execd'
+                elif skills_on:
                     if settings.advanced_features.e2b_sandbox:
                         mode = 'e2b'
                     elif getattr(settings.advanced_features, 'opensandbox_sandbox', False):
@@ -435,12 +466,8 @@ import json
                 executor = cls._get_local_executor()
                 return executor.format_error(e), {}
 
-            if skills_on:
-                if mode in ('e2b', 'docker'):
-                    return await cls._execute_remotely_for_code_agent(wrapped_code, state, mode)
-            else:
-                if mode in ('e2b', 'docker'):
-                    return await cls._execute_remotely_for_code_agent(wrapped_code, state, mode)
+            if mode in ('e2b', 'docker', 'execd'):
+                return await cls._execute_remotely_for_code_agent(wrapped_code, state, mode)
             context_locals = cls._prepare_locals_for_code_agent(state)
             return await cls._execute_locally_for_code_agent(wrapped_code, context_locals)
         finally:

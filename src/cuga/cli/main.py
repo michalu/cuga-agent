@@ -87,7 +87,11 @@ def _apply_demo_skills_env() -> None:
 
 def _apply_local_demo_workspace_env() -> None:
     """Demos that use ./cuga_workspace with runtime filesystem tools — not OpenSandbox /tmp paths from settings.toml."""
-    os.environ["DYNACONF_ADVANCED_FEATURES__ENABLE_SHELL_TOOL"] = "false"
+    # setdefault, not assignment: this is the preset's default, and a plain
+    # assignment silently overrode an operator who had asked for the shell tool
+    # in the environment. Deployments that run the demo against a real sandbox
+    # (sandbox_mode=execd) need run_command, and the flag is their only way in.
+    os.environ.setdefault("DYNACONF_ADVANCED_FEATURES__ENABLE_SHELL_TOOL", "false")
     os.environ["DYNACONF_ADVANCED_FEATURES__OPENSANDBOX_SANDBOX"] = "false"
     os.environ["DYNACONF_SKILLS__ENABLED"] = "false"
 

@@ -1,0 +1,170 @@
+# OpenShell control plane + sandbox management API — Rancher Desktop / Docker.
+#
+# Three long-running services:
+#   gateway      — OpenShell control plane (gRPC :8080, health :8081)
+#   relay        — TCP bridge making the execd sandbox reachable from other
+#                  sandboxes on Rancher Desktop / Docker (not needed on k8s)
+#   sandbox-api  — Control-plane REST API (:8090): status, restart, packages
+#
+# The execd sandbox itself is NOT a Compose service — it is created through the
+# gateway by setup.sh (openshell sandbox create).  Docker-outside-of-Docker: the
+# gateway uses the host socket to create sibling containers.
+#
+# Run from this directory:
+#   docker compose up -d
+# Or let setup.sh drive it (recommended).
+
+name: openshell-sandbox
+
+services:
+  # Generates the Ed25519 material the gateway signs sandbox JWTs with. Runs on
+  # every `up`, but generate-certs leaves existing keys alone, so restarting
+  # does not rotate them and invalidate live sandboxes.
+  openshell-init:
+    image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_GATEWAY_TAG:-latest}
+    user: "0"
+    restart: "no"
+    volumes:
+      - type: bind
+        source: /var/lib/openshell
+        target: /var/lib/openshell
+        bind:
+          create_host_path: true
+    command:
+      - generate-certs
+      - --output-dir=/var/lib/openshell/tls
+      - --server-san=127.0.0.1
+      - --server-san=localhost
+      - --server-san=host.openshell.internal
+
+  gateway:
+    image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_GATEWAY_TAG:-latest}
+    container_name: openshell-execd-gateway
+    restart: unless-stopped
+    depends_on:
+      openshell-init:
+        condition: service_completed_successfully
+
+    # Clear the image CMD so gateway.toml owns every setting: CLI flags beat the
+    # TOML in the merge order.
+    command: []
+
+    # UID 0 to write the extracted supervisor binary and reach the Docker socket.
+    # The image is distroless, so the numeric UID is required.
+    user: "0"
+
+    # Docker Desktop resolves these automatically; a plain Linux Docker host —
+    # which the Rancher Desktop VM is — does not.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "host.openshell.internal:host-gateway"
+
+    ports:
+      # Must be published on 0.0.0.0 at exactly 8080: sandboxes call back to
+      # host.openshell.internal:<gateway-port>, which resolves to the bridge
+      # address, so a loopback-bound publish is unreachable from them.
+      - "8080:8080"
+      - "127.0.0.1:8081:8081"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Source must equal target: Docker resolves bind-mount sources against the
+      # host filesystem when the gateway asks it to create sandbox containers.
+      - type: bind
+        source: /var/lib/openshell
+        target: /var/lib/openshell
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ./gateway.toml
+        target: /etc/openshell/gateway.toml
+        read_only: true
+
+    environment:
+      OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
+      # Not settable in the TOML — it is blocked there to keep credential-bearing
+      # DSNs out of VCS. A plain SQLite path carries no credentials.
+      OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"
+      XDG_DATA_HOME: /var/lib/openshell
+      HOME: /var/lib/openshell
+
+  # Makes the code-execution sandbox reachable from other sandboxes.
+  #
+  # An OpenShell sandbox has no inbound address of its own — the supervisor puts
+  # the workload in a private netns, so the container's IP does not expose it.
+  # The only way in is `openshell forward`, which binds on the host. On Rancher
+  # Desktop the host is macOS, unreachable from containers in the VM, so this
+  # relay bridges the two: sandboxes reach it at host.openshell.internal:44772
+  # (subject to their policy) and it forwards to the host's forwarded port.
+  #
+  # Docker-only. On Kubernetes pods address each other directly.
+  relay:
+    image: python:3.12-slim
+    container_name: sandbox-relay
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # 44772 = execd (CUGA -> sandbox), 8001 = CUGA's tool registry
+      # (code in the sandbox -> CUGA). Both need a host-side `openshell forward`.
+      RELAY_PORTS: "${OPENSHELL_RELAY_PORTS:-44772,8001}"
+      # The address of the *host* as seen from inside the VM.
+      # Docker Desktop / plain Linux: host.docker.internal
+      RELAY_TARGET_HOST: "${OPENSHELL_RELAY_TARGET_HOST:-host.rancher-desktop.internal}"
+      # Bridge address only. A 0.0.0.0 listener gets republished onto the macOS
+      # host by Rancher Desktop, which then holds the ports openshell forward
+      # needs — and the relay ends up pointing at itself.
+      RELAY_BIND: "${OPENSHELL_RELAY_BIND:-172.17.0.1}"
+    volumes:
+      - type: bind
+        # sandbox-relay.py lives in sandbox/sandbox/ (two levels up from deploy/rancher/).
+        source: ../../sandbox-relay.py
+        target: /relay.py
+        read_only: true
+    command: ["python", "-u", "/relay.py"]
+
+  # Sandbox control-plane REST API.
+  #
+  # Exposes management operations for ops/admin use:
+  #   GET  /ping          liveness probe (no auth)
+  #   GET  /status        gateway + execd health
+  #   POST /restart       delete + re-create the execd sandbox
+  #   GET  /threads       list on-disk thread workspaces
+  #   GET  /packages      list installed packages (base or per-thread venv)
+  #
+  # Protected by X-API-Key.  The key is generated once by setup.sh and stored
+  # at /var/lib/openshell/sandbox-api-key; setup.sh passes it here via the
+  # SANDBOX_API_KEY environment variable.
+  #
+  # Needs the host Docker socket to drive openshell sandbox create/delete on
+  # restart.  Needs the openshell gateway registration volume so the CLI inside
+  # the container knows where the gateway is.
+  sandbox-api:
+    build:
+      # Build context is sandbox/sandbox/ (two levels up from deploy/rancher/).
+      context: ../..
+      dockerfile: Dockerfile.sandbox-api
+    container_name: sandbox-api
+    restart: unless-stopped
+    depends_on:
+      openshell-init:
+        condition: service_completed_successfully
+    ports:
+      - "8090:8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: /var/lib/openshell
+        target: /var/lib/openshell
+        bind:
+          create_host_path: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "host.openshell.internal:host-gateway"
+    environment:
+      SANDBOX_API_KEY: "${SANDBOX_API_KEY}"
+      EXECD_URL: "${EXECD_URL:-http://localhost:44772}"
+      EXEC_SANDBOX_NAME: "${OPENSHELL_EXEC_SANDBOX:-code-exec}"
+      EXEC_SANDBOX_PORT: "${OPENSHELL_EXEC_PORT:-44772}"
+      # Gateway registration: reuse the same name setup.sh registers.
+      OPENSHELL_GATEWAY_NAME: "${OPENSHELL_GATEWAY_NAME:-openshell-docker}"
+      OPENSHELL_GATEWAY_URL: "${OPENSHELL_GATEWAY_URL:-http://localhost:8080}"

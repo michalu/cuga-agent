@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Apply all manifests in order:
+#   namespace → rbac → pvc → secret-job → gateway → execd → sandbox-api → proxy
+#
+# Usage:
+#   oc apply -k sandbox/sandbox/deploy/openshift/
+#
+# Prerequisites:
+#   1. SANDBOX_API_KEY generated and stored:
+#        openssl rand -hex 32 | \
+#          oc create secret generic sandbox-credentials \
+#            -n sandbox --from-literal=SANDBOX_API_KEY=$(cat /dev/stdin) \
+#            --dry-run=client -o yaml | oc apply -f -
+#   2. OPENAI_API_KEY (or equivalent LLM key) in a secret named llm-credentials.
+#   3. Update image tags in gateway-deployment.yaml / sandbox-api-deployment.yaml
+#      to match your registry.
+
+resources:
+  - manifests/namespace.yaml
+  - manifests/rbac.yaml
+  - manifests/pvc.yaml
+  - manifests/gateway-deployment.yaml
+  - manifests/sandbox-api-deployment.yaml
+  - manifests/sandbox-proxy.yaml
+
+# ConfigMap overlay: mount environment-specific gateway.toml
+configMapGenerator:
+  - name: gateway-config
+    files:
+      - gateway.toml
+    options:
+      disableNameSuffixHash: true
+
+  - name: execd-policy-config
+    files:
+      - execd-policy.yaml
+    options:
+      disableNameSuffixHash: true

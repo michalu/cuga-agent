@@ -1,0 +1,52 @@
+FROM registry.access.redhat.com/ubi9/python-312:latest
+
+# ubi9/python-312 ships dnf, not apt.
+# curl-minimal is pre-installed in UBI9 and conflicts with curl — skip it.
+USER 0
+RUN dnf install -y --setopt=install_weak_deps=False --allowerasing curl && dnf clean all
+
+# Install the openshell CLI binary (the pip package is an SDK with no binary).
+ARG OPENSHELL_VERSION=0.0.113
+RUN curl -fsSL \
+    "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-x86_64-unknown-linux-musl.tar.gz" \
+    | tar -xz -C /usr/local/bin \
+    && chmod +x /usr/local/bin/openshell
+
+# FastAPI + uvicorn for the management API.
+RUN pip install --no-cache-dir --root-user-action=ignore \
+    fastapi \
+    httpx \
+    uvicorn[standard]
+
+RUN groupadd -g 1000660000 sandbox && \
+    useradd -m -u 1000660000 -g sandbox sandbox
+
+# Policy file and build context are copied in so the /restart endpoint can
+# re-create the execd sandbox without needing a host-side bind mount.
+# execd-policy.yaml lives in deploy/rancher/ (deployment config); the build
+# context is the parent sandbox/sandbox/ directory, so prefix accordingly.
+COPY deploy/rancher/execd-policy.yaml  /opt/sandbox/execd-policy.yaml
+# Build context for openshell sandbox create --from.
+# Contains: Dockerfile (= Dockerfile.execd), execd-entrypoint.sh, execd-isolation.toml
+COPY Dockerfile.execd       /opt/sandbox/build-context/Dockerfile
+COPY execd-entrypoint.sh    /opt/sandbox/build-context/execd-entrypoint.sh
+COPY execd-isolation.toml   /opt/sandbox/build-context/execd-isolation.toml
+
+COPY sandbox-api.py /app/sandbox-api.py
+
+USER sandbox
+WORKDIR /app
+
+ENV SANDBOX_API_PORT=8090 \
+    EXECD_URL=http://localhost:44772 \
+    EXEC_SANDBOX_NAME=code-exec \
+    EXEC_SANDBOX_PORT=44772 \
+    EXECD_POLICY_PATH=/opt/sandbox/execd-policy.yaml \
+    EXECD_BUILD_CONTEXT=/opt/sandbox/build-context
+
+EXPOSE 8090
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s \
+    CMD curl -sf http://localhost:8090/ping || exit 1
+
+CMD ["uvicorn", "sandbox-api:app", "--host", "0.0.0.0", "--port", "8090"]

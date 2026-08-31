@@ -39,6 +39,38 @@ save_reuse_generate_html = false  # Generate HTML visualization for saved flows 
 decomposition_strategy = "flexible"  # "exact" = one subtask per app, "flexible" = allows multiple subtasks per app
 e2b_sandbox = false           # use E2B cloud sandbox for code execution
 opensandbox_sandbox = true    # use OpenSandbox (Docker) for code execution; requires Docker + opensandbox SDK
+# Remote code execution against OpenSandbox's execd over HTTP
+# (advanced_features.sandbox_mode = "execd"). Unlike the OpenSandbox server,
+# execd needs no container runtime, so it can run inside an OpenShell sandbox.
+# See sandbox/sandbox/ for the deployment.
+execd_url = "http://host.openshell.internal:44772"
+# API key for the execd data plane (and sandbox-api control plane).
+#
+# Single-tenant / local dev: leave empty. execd is reachable only through
+# `openshell forward` or a cluster-internal Service; network isolation is
+# sufficient.
+#
+# Multi-tenant / BYOA / catalog deployment: REQUIRED. Set to the
+# SANDBOX_API_KEY issued at provision time by the Sovereign Core catalog
+# broker. Every caller — CUGA, LangGraph agents, LangFlow, custom apps —
+# must present this key as `X-API-Key` in every POST /code and POST /command
+# request. There is no automatic injection outside of CUGA; BYOA developers
+# read the key from the Sovereign Core service binding and pass it themselves.
+# The same key also protects sandbox-api (GET /status, POST /restart, etc.).
+#
+# Set via env: DYNACONF_ADVANCED_FEATURES__EXECD_API_KEY=<SANDBOX_API_KEY>
+execd_api_key = ""
+# Package index for code running in the execd sandbox. Each CUGA thread gets its
+# own virtualenv under /workspace/<thread>/.venv, and installs go there.
+# Empty (default) = no index configured, so installs fail closed. Point this at
+# your own mirror or curated index, and add its host to the sandbox network
+# policy — egress is denied by default, so an unlisted index is unreachable.
+execd_package_index = ""
+# Maximum live execd contexts kept at once. Each is a Jupyter kernel holding its
+# own interpreter (tens of MB), and nothing expires them on the execd side, so
+# concurrent sessions accumulate until the sandbox runs out of memory. When the
+# cap is reached the least recently used context is deleted. 0 = no limit.
+execd_max_contexts = 32
 e2b_sandbox_mode = "per-session"  # E2B sandbox lifecycle: "per-session" = cache per thread_id (default), "single" = shared sandbox for all threads, "per-call" = new sandbox each call
 e2b_sandbox_idle_ttl = 600  # Idle timeout in seconds (default: 10 min) - sandbox expires after this much idle time
 e2b_sandbox_max_age = 86400  # Max age for "single" mode in seconds (24h, 0 = disabled) - prevents week-old sandboxes
@@ -78,8 +110,13 @@ execution_output_max_length = 70000  # Maximum characters to show in execution o
 variables_summary_max_length = 12000  # Maximum characters for the "Available Variables" prompt addendum (prevents unbounded growth as sandbox variables accumulate)
 # OpenSandbox shell tools (run_command, write_file, …) and matching prompt guidance. Opt-in: set true when using OpenSandbox shell tools.
 enable_shell_tool = false
-# Sandbox backend for shell tool execution. Options:
-#   "opensandbox" — Docker-based OpenSandbox (default; requires Docker + opensandbox_sandbox = true)
+# Sandbox backend. Options:
+#   "opensandbox" — Docker-based OpenSandbox server (requires Docker + opensandbox_sandbox = true).
+#                   Shell and files go to the sandbox; generated Python runs in the agent process.
+#   "execd"       — OpenSandbox execd over HTTP (see advanced_features.execd_url). The only mode
+#                   where *everything* is in the sandbox: generated Python, the CodeAgent, shell
+#                   commands, the filesystem tools and the workspace API all address one per-thread
+#                   workspace inside it. Needs no container runtime, so it can run under OpenShell.
 #   "native"      — macOS sandbox-exec (no Docker; macOS only; auto-falls back to "local" on Windows/Linux)
 #   "e2b"         — E2B cloud sandbox (requires e2b_sandbox = true)
 #   "local"       — no sandbox (runs directly on host; always pairs with run_command tool approval)

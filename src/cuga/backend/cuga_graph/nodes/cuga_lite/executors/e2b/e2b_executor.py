@@ -186,13 +186,19 @@ if __name__ == "__main__":
                 else:
                     logger.debug(f"Tool '{tool_name}' is a registry wrapper, generating call_api stub")
 
-                    app_name_guess = "unknown"
-                    for app in sorted_apps:
-                        if tool_name.startswith(app + '_'):
-                            app_name_guess = app
-                            break
+                    # 1. Explicit annotation set by runtime_tools (e.g. filesystem tools
+                    #    whose names don't start with the app prefix).
+                    app_name_guess = getattr(tool_func, "_cuga_app_name", None) or "unknown"
 
                     if app_name_guess == "unknown":
+                        # 2. Prefix match against the known apps list.
+                        for app in sorted_apps:
+                            if tool_name.startswith(app + '_'):
+                                app_name_guess = app
+                                break
+
+                    if app_name_guess == "unknown":
+                        # 3. Last-resort: split on first underscore.
                         parts = tool_name.split('_', 1)
                         if len(parts) >= 2:
                             app_name_guess = parts[0]

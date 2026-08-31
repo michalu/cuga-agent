@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Deploy CUGA static resources on OpenShift.
+#
+# The CUGA *pod* is NOT managed here — it is created by the OpenShell gateway
+# via `openshell sandbox create` (called by `make ocp-deploy-cuga`).
+# This kustomization only applies:
+#   - RBAC: ServiceAccount + privileged SCC RoleBinding
+#   - Service: stable DNS name for execd → CUGA tool-registry callbacks
+#   - Route: external HTTPS access to the CUGA UI
+#   - ConfigMap: cuga-policy.yaml mounted into the sandbox pod by the gateway
+#
+# Usage:
+#   make ocp-deploy-cuga   (handles build + push + this + sandbox create)
+
+resources:
+  - manifests/rbac.yaml
+  - manifests/cuga-deployment.yaml
+
+configMapGenerator:
+  - name: cuga-policy-config
+    files:
+      - cuga-policy.yaml
+    options:
+      disableNameSuffixHash: true

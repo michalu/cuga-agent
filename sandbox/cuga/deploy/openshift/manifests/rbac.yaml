@@ -1,0 +1,39 @@
+# ServiceAccount and RBAC for the CUGA sandbox pod.
+#
+# CUGA runs under the OpenShell supervisor (PID 1), which requires:
+#   - SYS_ADMIN / NET_ADMIN / SYS_PTRACE / SYSLOG capabilities (network namespace)
+#   - A projected SA token with audience "openshell-gateway" for gateway auth
+#
+# The "privileged" SCC grants the required Linux capabilities on OpenShift.
+# The ClusterRoleBinding below attaches it to the cuga-demo SA.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cuga-demo
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+# Do NOT set automountServiceAccountToken: false — the projected openshell-sa-token
+# volume needs the SA to be token-capable. The default SA token is not mounted
+# (no automount field = default false on OCP); only the explicit projection is used.
+
+---
+# Allow the cuga-demo SA to use the "privileged" SCC so the supervisor can
+# create a private network namespace (requires NET_ADMIN + SYS_ADMIN).
+# This mirrors the permissions the OpenShell gateway grants to execd pods.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cuga-demo-privileged-scc
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+  - kind: ServiceAccount
+    name: cuga-demo
+    namespace: ${NAMESPACE}

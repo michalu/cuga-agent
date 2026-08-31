@@ -1,0 +1,451 @@
+<mxfile host="Electron" pages="2">
+  <diagram name="OpenShift" id="e8w1qXrQ-a2IfP4Hww0Q">
+    <mxGraphModel dx="2820" dy="977" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="haproxy" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" value="HAProxy Route&#xa;(OCP ingress, TLS termination)&#xa;cuga-demo-&lt;ns&gt;.apps.&lt;cluster&gt;" vertex="1">
+          <mxGeometry height="60" width="180" x="270" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="route" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" value="Service cuga-demo&#xa;:7860 (ui)  :8001 (registry)" vertex="1">
+          <mxGeometry height="50" width="160" x="270" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="svc-cuga" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" value="Service cuga-demo&#xa;:7860 (ui)  :8001 (registry)" vertex="1">
+          <mxGeometry height="50" width="160" x="450" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="svc-execd" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" value="Service execd-service&#xa;:44772" vertex="1">
+          <mxGeometry height="50" width="160" x="450" y="550" as="geometry" />
+        </mxCell>
+        <mxCell id="proxy" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;" value="sandbox-proxy (nginx)&#xa;&#xa;rewrites Host to&#xa;&lt;workspace&gt;--&lt;sandbox&gt;--&lt;service&gt;&#xa;.openshell.localhost" vertex="1">
+          <mxGeometry height="120" width="170" x="650" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="netns-note" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=6;" value="Why the detour:&#xa;the workload sits in a netns&#xa;nested inside its pod, so the&#xa;pod IP serves nothing. The&#xa;gateway holds the only way in,&#xa;and routes by Host header —&#xa;which a Route cannot rewrite." vertex="1">
+          <mxGeometry height="110" width="180" x="255" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="e-user-route" edge="1" parent="1" source="user" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;" target="haproxy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-user-route-lbl" connectable="0" parent="e-user-route" style="edgeLabel;html=1;fontSize=10;" value="HTTPS" vertex="1">
+          <mxGeometry relative="1" x="0.1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-haproxy-svc" edge="1" parent="1" source="haproxy" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;" target="svc-cuga">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-haproxy-svc-lbl" connectable="0" parent="e-haproxy-svc" style="edgeLabel;html=1;fontSize=10;" value="HTTP :7860" vertex="1">
+          <mxGeometry relative="1" x="0.1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-route-svc" edge="1" parent="1" source="route" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;" target="svc-cuga">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-svc-proxy" edge="1" parent="1" source="svc-cuga" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;" target="proxy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-svcexecd-proxy" edge="1" parent="1" source="svc-execd" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;" target="proxy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-proxy-gw" edge="1" parent="1" source="proxy" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;" target="gateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-proxy-gw-lbl" connectable="0" parent="e-proxy-gw" style="edgeLabel;html=1;fontSize=10;" value="Host: cuga--cuga-demo--ui&#xa;.openshell.localhost" vertex="1">
+          <mxGeometry relative="1" x="0.2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-gw-fastapi" edge="1" parent="1" source="gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#82b366;" target="fastapi">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-gw-fastapi-lbl" connectable="0" parent="e-gw-fastapi" style="edgeLabel;html=1;fontSize=10;" value="gRPC relay into&#xa;the sandbox netns" vertex="1">
+          <mxGeometry relative="1" x="0.3" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="cluster" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=top;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=13;fontStyle=1;" value="OpenShift / Kubernetes Cluster" vertex="1">
+          <mxGeometry height="920" width="1200" x="250" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="user" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="User / Client" vertex="1">
+          <mxGeometry height="50" width="120" x="50" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="byoa" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="BYOA Agent&#xa;(LangGraph / LangFlow&#xa;/ custom app)" vertex="1">
+          <mxGeometry height="60" width="140" x="50" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="operator" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Operator / Admin" vertex="1">
+          <mxGeometry height="50" width="130" x="50" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="secrets" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" value="Sovereign Core&#xa;Service Binding&#xa;&#xa;SANDBOX_URL&#xa;SANDBOX_API_KEY" vertex="1">
+          <mxGeometry height="110" width="150" x="45" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="cugapod" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="CUGA Pod" vertex="1">
+          <mxGeometry height="380" width="320" x="270" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="fastapi" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="FastAPI :7860" vertex="1">
+          <mxGeometry height="50" width="120" x="290" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="agent" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="AGENT" vertex="1">
+          <mxGeometry height="50" width="120" x="290" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="execd-executor" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontColor=#0000CC;" value="ExecdExecutor&#xa;(X-API-Key auto)" vertex="1">
+          <mxGeometry height="50" width="120" x="290" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="toolreg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Tool Registry&#xa;:8001" vertex="1">
+          <mxGeometry height="50" width="120" x="290" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="cuga-supervisor" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=10;" value="OpenShell Supervisor&#xa;(PID 1)&#xa;Landlock · netns · policy" vertex="1">
+          <mxGeometry height="70" width="140" x="430" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="cuga-supervisor-note" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontSize=9;fontStyle=2;" value="all egress checked against&#xa;cuga-policy.yaml allowlist" vertex="1">
+          <mxGeometry height="40" width="140" x="430" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="execd-pod" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#d5e8d4;strokeColor=#82b366;" value="execd Pod — data plane&#xa;(one per tenant or per agent)" vertex="1">
+          <mxGeometry height="320" width="340" x="840" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="execd-supervisor" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=10;" value="OpenShell Supervisor&#xa;(PID 1)&#xa;Landlock · netns · policy" vertex="1">
+          <mxGeometry height="60" width="140" x="855" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="python-kernel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontColor=#0000CC;" value="Python kernel&#xa;POST /code&#xa;executes generated code" vertex="1">
+          <mxGeometry height="70" width="130" x="860" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="shell-kernel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontColor=#0000CC;" value="Shell kernel&#xa;POST /command&#xa;run_command / pip install" vertex="1">
+          <mxGeometry height="70" width="150" x="1010" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="venv" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontColor=#0000CC;" value="Per-thread venv &amp; workspace&#xa;/workspace/&lt;thread&gt;" vertex="1">
+          <mxGeometry height="50" width="190" x="900" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="sandbox-api-pod" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" value="sandbox-api Pod — control plane :8090" vertex="1">
+          <mxGeometry height="190" width="340" x="840" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="sandbox-api-endpoints" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=10;fontFamily=Courier New;fontSize=11;" value="GET  /ping   (no auth)&#xa;GET  /info&#xa;GET  /status&#xa;POST /restart&#xa;GET  /threads&#xa;GET  /packages" vertex="1">
+          <mxGeometry height="130" width="190" x="860" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="sandbox-api-auth" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;fontStyle=1;" value="auth:&#xa;X-API-Key" vertex="1">
+          <mxGeometry height="50" width="90" x="1070" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="openshell-cp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;" value="OpenShell Control Plane" vertex="1">
+          <mxGeometry height="170" width="240" x="490" y="730" as="geometry" />
+        </mxCell>
+        <mxCell id="gateway" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontColor=#0000CC;" value="Gateway :8080&#xa;(gRPC + LLM proxy)" vertex="1">
+          <mxGeometry height="60" width="200" x="510" y="790" as="geometry" />
+        </mxCell>
+        <mxCell id="model-gw" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Model Gateway" vertex="1">
+          <mxGeometry height="50" width="140" x="540" y="950" as="geometry" />
+        </mxCell>
+        <mxCell id="ingress-note" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=middle;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=2;fontSize=10;" value="★ In catalog/multi-tenant deployment:&#xa;Kubernetes Ingress in front of execd&#xa;validates X-API-Key before forwarding.&#xa;Single-tenant: network policy only." vertex="1">
+          <mxGeometry height="80" width="200" x="270" y="760" as="geometry" />
+        </mxCell>
+        <mxCell id="e-fastapi-agent" edge="1" parent="1" source="fastapi" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-agent-exec" edge="1" parent="1" source="agent" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="execd-executor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-exec-supervisor" edge="1" parent="1" source="execd-executor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="cuga-supervisor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-exec-supervisor-lbl" connectable="0" parent="e-exec-supervisor" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="POST /code, /command&#xa;+ X-API-Key" vertex="1">
+          <mxGeometry relative="1" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-supervisor-execd" edge="1" parent="1" source="cuga-supervisor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#d79b00;strokeWidth=2;" target="execd-supervisor" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-supervisor-execd-lbl" connectable="0" parent="e-supervisor-execd" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="policy-checked egress&#xa;(netns proxy)" vertex="1">
+          <mxGeometry relative="1" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-execdsup-kernel" edge="1" parent="1" source="execd-supervisor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="python-kernel">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-kernel-venv" edge="1" parent="1" source="python-kernel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="venv">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-shell-venv" edge="1" parent="1" source="shell-kernel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="venv">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1085" y="320" />
+              <mxPoint x="1110" y="320" />
+              <mxPoint x="1110" y="365" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-kernel-toolreg" edge="1" parent="1" source="python-kernel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="toolreg">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="780" y="265" />
+              <mxPoint x="780" y="375" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-kernel-toolreg-lbl" connectable="0" parent="e-kernel-toolreg" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="tool calls" vertex="1">
+          <mxGeometry relative="1" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-agent-gw" edge="1" parent="1" source="agent" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="gateway">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="350" y="820" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-agent-gw-lbl" connectable="0" parent="e-agent-gw" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="LLM call (no API key)&#xa;→ inference.local" vertex="1">
+          <mxGeometry relative="1" x="0.2" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-gw-model" edge="1" parent="1" source="gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="model-gw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-gw-model-lbl" connectable="0" parent="e-gw-model" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="LLM call (injected API key)" vertex="1">
+          <mxGeometry relative="1" x="0.3" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-gw-cuga" edge="1" parent="1" source="gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="cugapod">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="430" y="820" />
+              <mxPoint x="430" y="480" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-gw-cuga-lbl" connectable="0" parent="e-gw-cuga" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="A. creates and constrains" vertex="1">
+          <mxGeometry relative="1" x="0.2" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-gw-execd" edge="1" parent="1" source="gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="execd-pod">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1010" y="820" />
+              <mxPoint x="1010" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-gw-execd-lbl" connectable="0" parent="e-gw-execd" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="B. creates and constrains" vertex="1">
+          <mxGeometry relative="1" x="-0.2" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-sandboxapi-gw" edge="1" parent="1" source="sandbox-api-pod" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="gateway">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="780" y="585" />
+              <mxPoint x="780" y="820" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-sandboxapi-gw-lbl" connectable="0" parent="e-sandboxapi-gw" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="create / destroy / restart&#xa;(openshell gRPC)" vertex="1">
+          <mxGeometry relative="1" x="0.2" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-sandboxapi-execd" edge="1" parent="1" source="sandbox-api-pod" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="shell-kernel">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1030" y="490" />
+              <mxPoint x="1030" y="395" />
+              <mxPoint x="1085" y="395" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-sandboxapi-execd-lbl" connectable="0" parent="e-sandboxapi-execd" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="POST /command&#xa;(packages, threads)" vertex="1">
+          <mxGeometry relative="1" x="0.5" as="geometry">
+            <mxPoint x="60" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-secrets-cuga" edge="1" parent="1" source="secrets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="execd-executor">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="230" y="713" />
+              <mxPoint x="230" y="305" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-secrets-cuga-lbl" connectable="0" parent="e-secrets-cuga" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="SANDBOX_URL&#xa;SANDBOX_API_KEY" vertex="1">
+          <mxGeometry relative="1" x="0.8" as="geometry">
+            <mxPoint x="40" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-secrets-byoa" edge="1" parent="1" source="secrets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="byoa">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-secrets-byoa-lbl" connectable="0" parent="e-secrets-byoa" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="SANDBOX_URL&#xa;SANDBOX_API_KEY" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-90" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-byoa-execd" edge="1" parent="1" source="byoa" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="execd-supervisor">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="220" y="360" />
+              <mxPoint x="220" y="90" />
+              <mxPoint x="810" y="90" />
+              <mxPoint x="810" y="170" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-byoa-execd-lbl" connectable="0" parent="e-byoa-execd" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="POST /code, /command + X-API-Key" vertex="1">
+          <mxGeometry relative="1" x="0.5" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-byoa-sandboxapi" edge="1" parent="1" source="byoa" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="sandbox-api-pod">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="30" y="360" />
+              <mxPoint x="30" y="585" />
+              <mxPoint x="840" y="585" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-byoa-sandboxapi-lbl" connectable="0" parent="e-byoa-sandboxapi" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="GET /info, /status (optional)" vertex="1">
+          <mxGeometry relative="1" x="0.7" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-operator-sandboxapi" edge="1" parent="1" source="operator" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="sandbox-api-pod">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="180" y="555" />
+              <mxPoint x="810" y="555" />
+              <mxPoint x="810" y="585" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-operator-sandboxapi-lbl" connectable="0" parent="e-operator-sandboxapi" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="GET /status, POST /restart&#xa;GET /packages, GET /threads" vertex="1">
+          <mxGeometry relative="1" x="0.6" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Rancher Desktop" id="rancher-desktop-page">
+    <mxGraphModel dx="1238" dy="916" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="r0" />
+        <mxCell id="r1" parent="r0" />
+        <mxCell id="r-host" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=top;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=13;fontStyle=1;" value="macOS host" vertex="1">
+          <mxGeometry height="900" width="1180" x="60" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="r-vm" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=top;fillColor=#eeeeee;strokeColor=#999999;fontSize=12;fontStyle=1;" value="Rancher Desktop VM  (Linux kernel, dockerd)" vertex="1">
+          <mxGeometry height="700" width="840" x="360" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="r-browser" parent="r1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" value="Browser&#xa;localhost:7860" vertex="1">
+          <mxGeometry height="50" width="150" x="135" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="r-forwards" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;align=left;spacingLeft=8;" value="openshell forward&#xa;(binds on macOS)&#xa;&#xa;  :7860   → cuga-demo ui&#xa;  :8001   → cuga-demo registry&#xa;  :44772 → code-exec execd" vertex="1">
+          <mxGeometry height="130" width="200" x="110" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="r-note" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=6;" value="Same problem as OpenShift:&#xa;a sandbox has no inbound&#xa;address of its own.&#xa;&#xa;Here the way in is a host-side&#xa;tunnel; on OpenShift it is&#xa;service expose + gateway." vertex="1">
+          <mxGeometry height="130" width="200" x="110" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="r-gateway" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1;" value="[container] openshell-execd-gateway&#xa;:8080 gRPC   :8081 health" vertex="1">
+          <mxGeometry height="60" width="250" x="420" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="r-relay" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" value="[container] sandbox-relay&#xa;network_mode: host&#xa;172.17.0.1 : 44772, 8001&#xa;→ host.rancher-desktop.internal" vertex="1">
+          <mxGeometry height="90" width="250" x="420" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="r-api" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="[container] sandbox-api&#xa;:8090 management REST API" vertex="1">
+          <mxGeometry height="60" width="250" x="420" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="r-cuga" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=top;fillColor=#ffffff;strokeColor=#666666;fontSize=12;fontStyle=1;" value="[OpenShell sandbox]  cuga--cuga-demo" vertex="1">
+          <mxGeometry height="230" width="400" x="750" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="r-cuga-sup" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" value="OpenShell supervisor (PID 1)&#xa;Landlock · netns · policy" vertex="1">
+          <mxGeometry height="60" width="170" x="770" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="r-cuga-app" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" value="cuga start demo_crm&#xa;:7860 ui   :8001 registry&#xa;(private netns)" vertex="1">
+          <mxGeometry height="60" width="170" x="960" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="r-cuga-pol" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=10;align=left;spacingLeft=6;" value="cuga-policy.yaml — egress allowlist:&#xa;inference.local:443 · host.openshell.internal:44772" vertex="1">
+          <mxGeometry height="60" width="360" x="770" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="r-execd" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=top;fillColor=#ffffff;strokeColor=#666666;fontSize=12;fontStyle=1;" value="[OpenShell sandbox]  cuga--code-exec" vertex="1">
+          <mxGeometry height="260" width="400" x="750" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="r-execd-sup" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" value="OpenShell supervisor (PID 1)&#xa;Landlock · netns · policy" vertex="1">
+          <mxGeometry height="60" width="170" x="770" y="510" as="geometry" />
+        </mxCell>
+        <mxCell id="r-execd-app" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" value="execd :44772 + Jupyter&#xa;per-thread venv&#xa;/workspace/&lt;thread&gt;" vertex="1">
+          <mxGeometry height="60" width="170" x="960" y="510" as="geometry" />
+        </mxCell>
+        <mxCell id="r-execd-pol" parent="r1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=10;align=left;spacingLeft=6;" value="execd-policy.yaml — egress allowlist:&#xa;host.openshell.internal:8001 (tool registry)&#xa;pypi.org · files.pythonhosted.org (installs)&#xa;inference.local:443" vertex="1">
+          <mxGeometry height="80" width="360" x="770" y="600" as="geometry" />
+        </mxCell>
+        <mxCell id="r-model" parent="r1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" value="Model Gateway&#xa;(real API key lives here)" vertex="1">
+          <mxGeometry height="60" width="210" x="440" y="780" as="geometry" />
+        </mxCell>
+        <mxCell id="re-browser-fwd" edge="1" parent="r1" source="r-browser" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;" target="r-forwards">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re-fwd-gw" edge="1" parent="r1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="310" y="414.9999999999998" as="sourcePoint" />
+            <mxPoint x="545" y="270" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re-fwd-gw-lbl" connectable="0" parent="re-fwd-gw" style="edgeLabel;html=1;fontSize=10;resizable=0;points=[];" value="gRPC tunnel" vertex="1">
+          <mxGeometry relative="1" x="0.1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re-gw-cuga" edge="1" parent="r1" source="r-gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#82b366;" target="r-cuga">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re-gw-cuga-lbl" connectable="0" parent="re-gw-cuga" style="edgeLabel;html=1;fontSize=10;resizable=0;points=[];" value="creates and constrains" vertex="1">
+          <mxGeometry relative="1" x="0.2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re-gw-execd" edge="1" parent="r1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#82b366;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="r-execd">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="670" y="219.99999999999977" as="sourcePoint" />
+            <mxPoint x="950" y="459.9999999999998" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re-cuga-relay" edge="1" parent="r1" source="r-cuga-sup" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;" target="r-relay">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="570" y="270" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re-cuga-relay-lbl" connectable="0" parent="re-cuga-relay" style="edgeLabel;html=1;fontSize=10;resizable=0;points=[];" value="POST host.openshell.internal:44772&#xa;(policy-checked)" vertex="1">
+          <mxGeometry relative="1" x="0.3" as="geometry">
+            <mxPoint x="-15" y="-3" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re-execd-relay" edge="1" parent="r1" source="r-execd-sup" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;" target="r-relay">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re-execd-relay-lbl" connectable="0" parent="re-execd-relay" style="edgeLabel;html=1;fontSize=10;resizable=0;points=[];" value="POST host.openshell.internal:8001&#xa;tool calls back to CUGA" vertex="1">
+          <mxGeometry relative="1" x="0.4" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re-relay-fwd" edge="1" parent="r1" source="r-relay" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;" target="r-forwards">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re-relay-fwd-lbl" connectable="0" parent="re-relay-fwd" style="edgeLabel;html=1;fontSize=10;resizable=0;points=[];" value="VM → macOS bridge" vertex="1">
+          <mxGeometry relative="1" x="0.2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re-gw-model" edge="1" parent="r1" source="r-gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;" target="r-model">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re-gw-model-lbl" connectable="0" parent="re-gw-model" style="edgeLabel;html=1;fontSize=10;resizable=0;points=[];" value="LLM call with injected key" vertex="1">
+          <mxGeometry relative="1" x="0.3" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

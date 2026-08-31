@@ -1,0 +1,114 @@
+version: 1
+
+# OpenShell policy for the code-execution sandbox — OpenShift variant.
+#
+# Differences from the Rancher variant:
+#   host.openshell.internal  →  Kubernetes Service DNS names
+#   /opt/app-root added to read_only — the OCP image has a different base
+#
+# Inbound access is NOT free on OpenShift.  The supervisor puts the workload in
+# a network namespace nested inside the pod, so the pod IP does not expose it;
+# `openshell service expose code-exec 44772 execd` (see the Makefile) registers
+# the port with the gateway, which reverse-proxies to it.
+
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /bin
+    - /etc
+    - /lib
+    # The OCP image is built on ubi9/python-312, whose venv lives in
+    # /opt/app-root — not /usr/local as on the Debian-based Rancher image.
+    # Without this entry Landlock denies execve and jupyter dies with
+    # "Permission denied", taking execd down 90 s later.
+    - /opt/app-root
+    - /opt/opensandbox
+    - /proc
+    - /sys
+    - /usr
+    - /dev/urandom
+  read_write:
+    - /sandbox
+    - /workspace
+    - /run/execd
+    - /tmp
+    - /dev/null
+
+landlock:
+  compatibility: best_effort
+
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+
+network_policies:
+  execd_api:
+    name: execd-api
+    endpoints:
+      - host: 127.0.0.1
+        ports: [44772, 54321]
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: localhost
+        ports: [44772, 54321]
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries:
+      - { path: /usr/local/bin/execd }
+      - { path: /usr/local/bin/execd-entrypoint }
+      - { path: /usr/local/bin/python* }
+
+  # CUGA's tool registry — reached via Service DNS on OpenShift.
+  # The Service name matches the cuga-demo Service in sandbox/cuga/deploy/openshift/manifests/cuga-deployment.yaml.
+  # Port 8001 is CUGA's function-call / tool registry port.
+  cuga_tool_registry:
+    name: cuga-tool-registry
+    endpoints:
+      - host: cuga-demo.${NAMESPACE}.svc.cluster.local
+        port: 8001
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries:
+      - { path: /usr/local/bin/execd }
+      - { path: /usr/local/bin/python* }
+      - { path: /workspace/*/.venv/bin/python* }
+
+  # Package installs for agent-written code.  Egress is deny-by-default, so an
+  # index that is not listed here is unreachable no matter what
+  # advanced_features.execd_package_index says.  pip/uv fetch metadata from the
+  # index host and the wheels themselves from the file host — both are needed.
+  # Air-gapped deployments: replace both with your internal mirror.
+  python_package_index:
+    name: python-package-index
+    endpoints:
+      - host: pypi.org
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+      - host: files.pythonhosted.org
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+    binaries:
+      - { path: /usr/local/bin/uv }
+      - { path: /opt/app-root/bin/uv }
+      - { path: /opt/app-root/bin/python* }
+      - { path: /workspace/*/.venv/bin/python* }
+      - { path: /workspace/*/.venv/bin/pip* }
+
+  openshell_inference:
+    name: openshell-inference-local
+    endpoints:
+      - host: inference.local
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+    binaries:
+      - { path: /usr/local/bin/python* }
+      - { path: /workspace/*/.venv/bin/python* }

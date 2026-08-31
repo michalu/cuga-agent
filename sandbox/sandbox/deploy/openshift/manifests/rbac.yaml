@@ -1,0 +1,113 @@
+# ServiceAccount + Role for the OpenShell gateway.
+# The gateway uses the Kubernetes API to create sandbox pods in this namespace.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openshell-gateway
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openshell-gateway
+  namespace: ${NAMESPACE}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "services", "secrets", "events", "serviceaccounts", "serviceaccounts/token"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["agents.x-k8s.io", "extensions.agents.x-k8s.io"]
+    resources: ["*"]
+    verbs: ["*"]
+
+---
+# tokenreviews is cluster-scoped — a namespaced Role cannot grant it.
+# This ClusterRole + ClusterRoleBinding gives only the gateway SA the ability
+# to call TokenReview (used to verify sandbox pod service-account tokens).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openshell-gateway-tokenreview-${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openshell-gateway-tokenreview-${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: openshell-gateway-tokenreview-${NAMESPACE}
+subjects:
+  - kind: ServiceAccount
+    name: openshell-gateway
+    namespace: ${NAMESPACE}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openshell-gateway
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openshell-gateway
+subjects:
+  - kind: ServiceAccount
+    name: openshell-gateway
+    namespace: ${NAMESPACE}
+
+---
+# ServiceAccount for the sandbox-api sidecar.
+# Needs read access to sandbox pods so it can check their status.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sandbox-api
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sandbox-api
+  namespace: ${NAMESPACE}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sandbox-api
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sandbox-api
+subjects:
+  - kind: ServiceAccount
+    name: sandbox-api
+    namespace: ${NAMESPACE}

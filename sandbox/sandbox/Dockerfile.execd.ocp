@@ -1,0 +1,88 @@
+# Code-execution sandbox: one image, one process tree.
+#
+# execd exposes HTTP APIs for code execution, shell commands and filesystem
+# operations. Each execution unit is an *isolated session* — a shell inside a
+# per-execution bubblewrap namespace with its own workspace — not a container.
+# Nothing here needs a Docker socket or a container runtime.
+#
+# The OpenSandbox *server* is deliberately absent: its runtime type is
+# Literal["docker", "kubernetes"], so it can only create containers. execd is
+# the piece that actually runs the code, and it runs standalone.
+# Pinned by digest rather than tag. The hardening floor needs
+# opensandbox-launcher, which the newest versioned tag (v1.0.22, 2026-08-13)
+# does not ship — only builds from `latest` carry it. This digest is `latest`
+# as of 2026-08-25; replace it with the first versioned tag that includes the
+# launcher when one is published.
+ARG EXECD_IMAGE=EXECD_BASE_DST
+FROM ${EXECD_IMAGE} AS execd
+
+FROM registry.access.redhat.com/ubi9/python-312:latest
+
+# procps/iproute2 for process and namespace introspection; libcap for setpriv.
+# shadow-utils ships newuidmap/newgidmap (uidmap equivalent on UBI9).
+# --allowerasing replaces curl-minimal (pre-installed) with full curl.
+USER 0
+RUN dnf install -y --setopt=install_weak_deps=False --allowerasing \
+    curl \
+    iproute \
+    procps-ng \
+    shadow-utils \
+    libcap \
+    && dnf clean all
+
+# execd, bubblewrap, and the session gate. The gate must stay root-owned and
+# not group- or world-writable, or isolated-session probing fails closed.
+COPY --from=execd --chown=0:0 /execd                                     /usr/local/bin/execd
+COPY --from=execd --chown=0:0 /usr/local/bin/bwrap                       /usr/local/bin/bwrap
+COPY --from=execd --chown=0:0 /opt/opensandbox/opensandbox-session-gate  /opt/opensandbox/opensandbox-session-gate
+COPY --from=execd --chown=0:0 /opt/opensandbox/opensandbox-launcher      /opt/opensandbox/opensandbox-launcher
+RUN chmod 0755 /usr/local/bin/execd /usr/local/bin/bwrap && \
+    chmod 0555 /opt/opensandbox/opensandbox-session-gate \
+               /opt/opensandbox/opensandbox-launcher
+
+# Jupyter backs execd's /code endpoint; uv gives each workspace its own venv.
+RUN pip install --no-cache-dir --root-user-action=ignore ipykernel jupyter uv
+
+# Register the Python kernel under a name other than "python3". execd's kernel
+# lookup (pkg/runtime/jupyter.go) explicitly skips the spec named "python3" and
+# then matches on spec.language, so the stock ipykernel registration is invisible
+# to it and every /code/context call fails with "no kernel specs found".
+RUN python -m ipykernel install --prefix=/usr/local --name python --display-name "Python 3"
+
+# CUGA runs shell commands with PATH=<venv>/bin:/usr/local/bin:/usr/bin:/bin
+# (execd_executor.py), which does not include /opt/app-root/bin — so `uv` has to
+# be reachable from /usr/local/bin or `uv pip install` is "command not found".
+RUN ln -s /opt/app-root/bin/uv /usr/local/bin/uv
+
+RUN groupadd -g 1000660000 sandbox && \
+    useradd -m -u 1000660000 -g sandbox sandbox && \
+    mkdir -p /sandbox /workspace /run/execd && \
+    chown -R sandbox:0 /sandbox /workspace /run/execd && \
+    chmod -R g+rwX /sandbox /workspace /run/execd
+
+COPY execd-isolation.toml /etc/opensandbox/isolation.toml
+COPY execd-entrypoint.sh  /usr/local/bin/execd-entrypoint
+RUN chmod +x /usr/local/bin/execd-entrypoint
+
+ENV EXECD_PORT=44772 \
+    JUPYTER_PORT=54321 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Per-workspace venvs, built by `uv venv` in the kernel bootstrap.
+#
+# UV_PYTHON: UBI9 carries a system python3.9 in /usr/bin and uv's interpreter
+#   discovery finds it before the 3.12 in /opt/app-root/bin, so every workspace
+#   venv came out as 3.9.  Name the interpreter instead of relying on PATH.
+# UV_VENV_SEED: `uv venv` installs no pip, so a literal `pip install` in
+#   agent-written code has nothing to run.
+ENV UV_PYTHON=/opt/app-root/bin/python3.12 \
+    UV_VENV_SEED=1
+
+EXPOSE 44772
+
+WORKDIR /sandbox
+
+# OpenShell does not use the image CMD — the sandbox command is passed after
+# `--` on `openshell sandbox create` (see setup.sh). This CMD only makes the
+# image usable with a plain `docker run` for debugging.
+CMD ["/usr/local/bin/execd-entrypoint"]

@@ -1,0 +1,40 @@
+# PersistentVolumeClaim for OpenShell gateway state.
+#
+# Stores:
+#   /var/lib/openshell/tls/   — JWT signing keys (must survive pod restarts)
+#   /var/lib/openshell/gateway.db — SQLite state (replace with Postgres for HA)
+#
+# Using ReadWriteOnce because a single gateway replica writes to it.
+# For multi-replica gateway, switch to ReadWriteMany + Postgres DB.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openshell-state
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# PVC for the execd workspace.
+# /workspace is per-thread; this PVC survives sandbox pod restarts
+# so thread workspaces are preserved across execd restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: execd-workspace
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

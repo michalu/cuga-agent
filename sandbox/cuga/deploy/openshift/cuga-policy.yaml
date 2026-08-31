@@ -1,0 +1,133 @@
+version: 1
+
+# OpenShell confinement policy for CUGA — OpenShift variant.
+#
+# Identical to deploy/rancher/cuga-policy.yaml except:
+#   host.openshell.internal  →  Kubernetes Service DNS names
+#
+# Adjust Service names and namespaces to match your cluster layout.
+
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /app
+    - /bin
+    - /etc
+    - /lib
+    - /proc
+    - /sys
+    - /usr
+    - /var/log
+    - /dev/urandom
+  read_write:
+    - /sandbox
+    - /tmp
+    - /dev/null
+
+landlock:
+  compatibility: best_effort
+
+process:
+  run_as_user: "1001"
+  run_as_group: "1001"
+
+network_policies:
+  openshell_inference:
+    name: openshell-inference-local
+    endpoints:
+      - host: inference.local
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+    binaries:
+      - { path: /app/.venv/bin/python }
+      - { path: /app/.venv/bin/python* }
+      - { path: /app/.venv/bin/cuga }
+      - { path: /usr/local/bin/cuga-entrypoint }
+
+  # First start pulls BAAI/bge-small-en-v1.5 (~64 MB). Note the alias: fastembed
+  # resolves that name to the HF repo Qdrant/bge-small-en-v1.5-onnx-Q, which is
+  # what a mirror must actually carry.
+  #
+  # Two hosts are needed — huggingface.co serves metadata and issues a 302 to a
+  # regional blob CDN. Verify the CDN for your region with:
+  #   curl -sSL -o /dev/null -r 0-0 -w '%{url_effective}\n' \
+  #     https://huggingface.co/qdrant/bge-small-en-v1.5-onnx-q/resolve/main/model_optimized.onnx
+  #
+  # The entrypoint sets HF_HUB_DISABLE_XET=1 so transfers take this classic path;
+  # Xet resolves its CAS endpoint at runtime and cannot be allowlisted by host.
+  fastembed_model_download:
+    name: fastembed-model-download
+    endpoints:
+      - host: huggingface.co
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+      - host: us.aws.cdn.hf.co
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+    binaries:
+      - { path: /app/.venv/bin/python }
+      - { path: /app/.venv/bin/python* }
+      - { path: /app/.venv/bin/cuga }
+      - { path: /usr/local/bin/cuga-entrypoint }
+
+  # execd sandbox reached via Service DNS on OpenShift.
+  # On Rancher Desktop this was host.openshell.internal:44772 via the relay.
+  cuga_code_sandbox:
+    name: cuga-code-sandbox
+    endpoints:
+      - host: execd-service.${NAMESPACE}.svc.cluster.local
+        port: 44772
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries:
+      - { path: /app/.venv/bin/python }
+      - { path: /app/.venv/bin/python* }
+      - { path: /app/.venv/bin/cuga }
+      - { path: /usr/local/bin/cuga-entrypoint }
+      - { path: /usr/bin/curl }
+
+  cuga_local_services:
+    name: cuga-local-services
+    endpoints:
+      - host: 127.0.0.1
+        port: 7860
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: 127.0.0.1
+        port: 8001
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: 127.0.0.1
+        port: 8007
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: localhost
+        port: 7860
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: localhost
+        port: 8001
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: localhost
+        port: 8007
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries:
+      - { path: /app/.venv/bin/python }
+      - { path: /app/.venv/bin/python* }
+      - { path: /app/.venv/bin/cuga }
+      - { path: /usr/local/bin/cuga-entrypoint }

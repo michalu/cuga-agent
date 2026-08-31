@@ -1,0 +1,58 @@
+# CUGA demo Service and Route on OpenShift.
+#
+# The CUGA pod is NOT managed by a Deployment here — it is created and
+# lifecycle-managed by the OpenShell gateway via `openshell sandbox create`.
+# The gateway injects the supervisor binary, OPENSHELL_SANDBOX_ID, and all
+# other runtime env vars the supervisor needs (network namespace, policy
+# enforcement, inference.local interception).
+#
+# This file only creates the stable cluster-internal Service (so execd can
+# call back to CUGA's tool registry) and the external Route (UI access).
+#
+# Prerequisites:
+#   - ServiceAccount cuga-demo (rbac.yaml)
+#   - OpenShell gateway running + registered (ocp-deploy-sandbox)
+#   - `openshell sandbox create` called by ocp-deploy-cuga (Makefile)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cuga-demo
+  namespace: ${NAMESPACE}
+  labels:
+    app: cuga-demo
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  # Points at sandbox-proxy, NOT at the sandbox pod.  The sandbox workload runs
+  # in a network namespace nested inside its pod, so the pod IP serves nothing —
+  # targeting it directly yields connection-refused and a 503 from the Route.
+  # sandbox-proxy rewrites the Host header and forwards to the OpenShell
+  # gateway, which reverse-proxies into the sandbox.  See sandbox-proxy.yaml.
+  selector:
+    app: sandbox-proxy
+  ports:
+    - name: ui
+      port: 7860
+      targetPort: 7860
+    - name: registry
+      port: 8001
+      targetPort: 8001
+
+---
+# Route exposes the CUGA demo UI outside the cluster.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: cuga-demo
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  to:
+    kind: Service
+    name: cuga-demo
+  port:
+    targetPort: ui
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

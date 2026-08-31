@@ -22,8 +22,8 @@ from loguru import logger
 
 from cuga.backend.cuga_graph.nodes.cuga_lite.providers.base import AppDefinition
 
-FilesystemChoice = Literal["none", "host", "sandbox_remote"]
-ShellChoice = Literal["none", "local", "native", "opensandbox"]
+FilesystemChoice = Literal["none", "host", "sandbox_remote", "sandbox_execd"]
+ShellChoice = Literal["none", "local", "native", "opensandbox", "execd"]
 
 
 @dataclass(frozen=True)
@@ -86,10 +86,18 @@ def resolve_runtime_backends(settings: Any, configurable: Dict[str, Any]) -> Run
         (_sandbox_mode == "native")
         or (_sandbox_mode == "opensandbox" and _opensandbox_on)
         or (_sandbox_mode == "local")
+        or (_sandbox_mode == "execd")
     )
 
     if not _fs_tool_on:
         filesystem: FilesystemChoice = "none"
+    elif _sandbox_mode == "execd":
+        # Unconditionally sandbox-backed, unlike opensandbox below: under execd
+        # the agent's Python already runs in the sandbox and writes to its
+        # workspace there. Leaving the files on the host would mean code writes
+        # a file that read_file cannot find. The shell tool being off does not
+        # change where the files are.
+        filesystem = "sandbox_execd"
     elif _use_sandbox and _sandbox_mode == "opensandbox":
         filesystem = "sandbox_remote"
     else:
@@ -113,16 +121,20 @@ def build_runtime_tools(*, thread_id: Optional[str], backends: RuntimeBackends) 
         import cuga.backend.cuga_graph.nodes.cuga_lite.executors.filesystem as fs_pkg
 
         fs_backend = None
-        if backends.filesystem == "sandbox_remote":
-            from cuga.backend.cuga_graph.nodes.cuga_lite.executors import CodeExecutor
+        if backends.filesystem in ("sandbox_remote", "sandbox_execd"):
+            from cuga.backend.cuga_graph.nodes.cuga_lite.executors.filesystem.factory import (
+                sandbox_workspace_backend,
+            )
 
-            fs_backend = fs_pkg.RemoteSandboxBackend(CodeExecutor._get_opensandbox_executor(), thread_id)
+            fs_backend = sandbox_workspace_backend(thread_id)
 
         fs_tools = fs_pkg.create_filesystem_tools(thread_id, backend=fs_backend)
         for ft in fs_tools:
             fn = ft.coroutine or ft.func
             if fn:
-                bundle.execution_callables[ft.name] = make_tool_awaitable(fn)
+                awaitable = make_tool_awaitable(fn)
+                awaitable._cuga_app_name = "filesystem"
+                bundle.execution_callables[ft.name] = awaitable
         bundle.prompt_tools.extend(fs_tools)
         bundle.app_definitions.append(
             AppDefinition(
@@ -142,6 +154,9 @@ def build_runtime_tools(*, thread_id: Optional[str], backends: RuntimeBackends) 
         elif backends.shell == "local":
             sandbox_executor = CodeExecutor._get_local_sandbox_executor()
             sandbox_label = "LocalSandbox"
+        elif backends.shell == "execd":
+            sandbox_executor = CodeExecutor._get_execd_executor()
+            sandbox_label = "Execd"
         else:
             sandbox_executor = CodeExecutor._get_opensandbox_executor()
             sandbox_label = "OpenSandbox"

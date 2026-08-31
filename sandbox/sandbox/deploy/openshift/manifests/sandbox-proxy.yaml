@@ -1,0 +1,152 @@
+# Host-rewriting proxy in front of the OpenShell gateway.
+#
+# An OpenShell sandbox has no inbound address of its own: the supervisor puts
+# the workload in a network namespace nested inside the pod, so the pod IP does
+# not expose it.  `openshell service expose` (see the Makefile) registers the
+# port with the gateway, which reverse-proxies to it — but routes on the Host
+# header `<workspace>--<sandbox>--<service>.openshell.localhost`, and nothing
+# else.  An OpenShift Route cannot rewrite Host, and a sandbox dialling the
+# gateway directly is refused by its own network policy ("policy_denied").
+#
+# So this proxy stands under the Service names the policies ALREADY declare
+# (execd-service:44772, cuga-demo:8001, cuga-demo:7860) and rewrites Host on
+# the way to the gateway.  Callers are untouched, both sandbox policies stay
+# as they are.  This is the OpenShift counterpart of sandbox-relay.py.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sandbox-proxy-conf
+  namespace: ${NAMESPACE}
+  labels:
+    app: sandbox-proxy
+    app.kubernetes.io/part-of: sovereign-sandbox
+data:
+  nginx.conf: |
+    worker_processes 1;
+    error_log  /dev/stderr warn;
+    pid        /tmp/nginx.pid;
+
+    events { worker_connections 1024; }
+
+    http {
+      access_log off;
+      # Every writable path must sit under /tmp: OpenShift runs the pod as an
+      # arbitrary UID that owns nothing else in the image.
+      client_body_temp_path /tmp/nginx-client-body;
+      proxy_temp_path       /tmp/nginx-proxy;
+      fastcgi_temp_path     /tmp/nginx-fastcgi;
+      uwsgi_temp_path       /tmp/nginx-uwsgi;
+      scgi_temp_path        /tmp/nginx-scgi;
+
+      client_max_body_size 0;
+      proxy_http_version   1.1;
+      # Gradio streams (SSE + WebSocket); buffering would stall the UI.
+      proxy_buffering      off;
+      proxy_read_timeout   3600s;
+      proxy_send_timeout   3600s;
+
+      map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+      }
+
+      upstream openshell_gateway {
+        server openshell-gateway.${NAMESPACE}.svc.cluster.local:8080;
+      }
+
+      # CUGA Gradio UI — fronted by the cuga-demo Route.
+      server {
+        listen 7860;
+        location / {
+          proxy_pass http://openshell_gateway;
+          proxy_set_header Host       ${OPENSHELL_WORKSPACE}--cuga-demo--ui.openshell.localhost;
+          proxy_set_header Upgrade    $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+        }
+      }
+
+      # CUGA tool-call registry — called back by code running inside execd.
+      server {
+        listen 8001;
+        location / {
+          proxy_pass http://openshell_gateway;
+          proxy_set_header Host       ${OPENSHELL_WORKSPACE}--cuga-demo--registry.openshell.localhost;
+          proxy_set_header Upgrade    $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+        }
+      }
+
+      # execd code-execution API — called by CUGA.
+      server {
+        listen 44772;
+        location / {
+          proxy_pass http://openshell_gateway;
+          proxy_set_header Host       ${OPENSHELL_WORKSPACE}--code-exec--execd.openshell.localhost;
+          proxy_set_header Upgrade    $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+        }
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandbox-proxy
+  namespace: ${NAMESPACE}
+  labels:
+    app: sandbox-proxy
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sandbox-proxy
+  template:
+    metadata:
+      labels:
+        app: sandbox-proxy
+    spec:
+      containers:
+        - name: nginx
+          image: registry.access.redhat.com/ubi9/nginx-124:latest
+          command: ["nginx", "-c", "/etc/nginx/custom/nginx.conf", "-g", "daemon off;"]
+          ports:
+            - { name: ui,       containerPort: 7860 }
+            - { name: registry, containerPort: 8001 }
+            - { name: execd,    containerPort: 44772 }
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/custom
+              readOnly: true
+          readinessProbe:
+            tcpSocket: { port: 7860 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m,  memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+      volumes:
+        - name: conf
+          configMap:
+            name: sandbox-proxy-conf
+
+---
+# The Service name CUGA's policy declares for execd.  CUGA keeps dialling
+# execd-service:44772; the proxy turns that into a gateway call.
+apiVersion: v1
+kind: Service
+metadata:
+  name: execd-service
+  namespace: ${NAMESPACE}
+  labels:
+    app: sandbox-proxy
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  selector:
+    app: sandbox-proxy
+  ports:
+    - name: execd
+      port: 44772
+      targetPort: 44772

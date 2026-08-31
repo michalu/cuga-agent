@@ -607,3 +607,131 @@ async def test_generated_exit_ends_the_block_not_the_runtime(mock_state):
         mode='local',
     )
     assert "no candidate found" in result
+
+
+# ─── _serialize_tools: _cuga_app_name takes priority over name-splitting ─────
+
+
+def _make_wrapped_tool(*, app_name: str = None):
+    """Return a minimal async callable mimicking a counted_tool_call-wrapped tool.
+
+    functools.wraps copies __dict__, so attributes set on the inner function
+    survive the counted_tool_call layer exactly as in production.
+    """
+    import functools
+
+    async def _inner(**kwargs):
+        pass  # pragma: no cover
+
+    if app_name:
+        _inner._cuga_app_name = app_name
+
+    @functools.wraps(_inner)
+    async def _wrapped(**kwargs):
+        return await _inner(**kwargs)  # pragma: no cover
+
+    return _wrapped
+
+
+@pytest.mark.unit
+def test_serialize_tools_uses_cuga_app_name_for_filesystem_tools():
+    """write_file / read_file / list_files must resolve to app='filesystem'.
+
+    Previously the fallback split on '_' and guessed app='write', 'read', 'list',
+    producing HTTP 404s: Application 'write' not found in registry.
+    """
+    from cuga.backend.cuga_graph.nodes.cuga_lite.executors.e2b.e2b_executor import E2BExecutor
+
+    executor = E2BExecutor()
+    tools = {
+        name: _make_wrapped_tool(app_name="filesystem")
+        for name in ("write_file", "read_file", "list_files")
+    }
+    code = executor._serialize_tools(tools, apps_list=["filesystem"])
+
+    for name in ("write_file", "read_file", "list_files"):
+        assert f'call_api("filesystem", "{name}"' in code, (
+            f"Expected call_api('filesystem', '{name}') in serialized code, got:\n{code}"
+        )
+
+
+@pytest.mark.unit
+def test_serialize_tools_fallback_prefix_match_still_works():
+    """Tools whose names start with the app prefix must still use prefix matching."""
+    from cuga.backend.cuga_graph.nodes.cuga_lite.executors.e2b.e2b_executor import E2BExecutor
+
+    executor = E2BExecutor()
+    # Simulate a tool without the annotation (e.g. from a third-party app):
+    # crm_get_contact → app='crm'
+    async def _inner(**kwargs): pass  # pragma: no cover
+    tools = {"crm_get_contact": _inner}
+    code = executor._serialize_tools(tools, apps_list=["crm"])
+
+    assert 'call_api("crm", "crm_get_contact"' in code
+
+
+@pytest.mark.unit
+def test_serialize_tools_cuga_app_name_survives_functools_wraps():
+    """_cuga_app_name must survive functools.wraps (the counted_tool_call layer)."""
+    import functools
+
+    async def _base(**kwargs): pass  # pragma: no cover
+    _base._cuga_app_name = "filesystem"
+
+    @functools.wraps(_base)
+    async def _outer(**kwargs): return await _base(**kwargs)  # pragma: no cover
+
+    assert getattr(_outer, "_cuga_app_name", None) == "filesystem"
+
+
+@pytest.mark.unit
+def test_execd_serialize_tools_skips_filesystem_tools():
+    """ExecdExecutor._serialize_tools must skip filesystem tools entirely.
+
+    Filesystem tools are injected as inline Python via _filesystem_tools_code —
+    serializing them again would produce a duplicate (or broken) definition.
+    """
+    from cuga.backend.cuga_graph.nodes.cuga_lite.executors.execd.execd_executor import ExecdExecutor
+
+    executor = ExecdExecutor()
+    tools = {
+        name: _make_wrapped_tool(app_name="filesystem")
+        for name in ("write_file", "read_file", "list_files")
+    }
+    code = executor._serialize_tools(tools, apps_list=["filesystem"])
+
+    # None of the filesystem tool names should appear in the serialized output
+    for name in ("write_file", "read_file", "list_files"):
+        assert f"def {name}" not in code, (
+            f"Filesystem tool '{name}' must not be serialized by _serialize_tools"
+        )
+
+
+@pytest.mark.unit
+def test_execd_filesystem_tools_code_defines_all_tools():
+    """_filesystem_tools_code must define write_file, read_file, list_files inline."""
+    from cuga.backend.cuga_graph.nodes.cuga_lite.executors.execd.execd_executor import ExecdExecutor
+
+    code = ExecdExecutor._filesystem_tools_code("/workspace/test-thread")
+
+    for name in ("write_file", "read_file", "list_files", "make_directory", "edit_file"):
+        assert f"async def {name}" in code, f"Expected 'async def {name}' in filesystem tools code"
+
+    # Must reference the correct workspace root
+    assert "/workspace/test-thread" in code
+
+
+@pytest.mark.unit
+def test_execd_serialize_tools_registry_tools_still_use_call_api():
+    """Non-filesystem (registry) tools must still use call_api in ExecdExecutor."""
+    from cuga.backend.cuga_graph.nodes.cuga_lite.executors.execd.execd_executor import ExecdExecutor
+
+    executor = ExecdExecutor()
+
+    async def _tool(**kwargs): pass  # pragma: no cover
+    # No _cuga_app_name → goes through registry path
+    tools = {"crm_get_contact": _tool}
+    code = executor._serialize_tools(tools, apps_list=["crm"])
+
+    assert 'call_api("crm", "crm_get_contact"' in code
+    assert "call_runtime_tool" not in code

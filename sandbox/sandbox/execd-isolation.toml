@@ -1,0 +1,56 @@
+# execd isolated-session and hardening policy.
+
+# Host paths a caller may request as bind mounts into a session's bubblewrap
+# namespace. Empty list = reject all. Kept narrow: everything a session needs
+# lives under its own workspace.
+allowed_writable = ["/workspace"]
+
+# The pre-exec privilege floor is DISABLED under OpenShell, deliberately.
+#
+# With it on, execd launches /command and PTY processes through
+# opensandbox-launcher, which loads its policy through an anonymous memfd.
+# OpenShell's confinement denies memfd_create, so every command dies before it
+# runs:
+#
+#   {"ename":"CommandExecError",
+#    "evalue":"hardening: policy memfd: memfd_create: operation not permitted"}
+#
+# Measured, not assumed: the same image under a plain `docker run` runs commands
+# fine and `os.memfd_create` succeeds; inside the OpenShell sandbox it is denied
+# even to an unwrapped Jupyter kernel. So this is OpenShell's boundary, not the
+# environment's — unlike the bwrap/userns limitation documented in README.md.
+# execd exposes no per-request opt-out (`withoutHardening()` is reserved for the
+# bwrap process of isolated sessions), so the global switch is the only lever.
+#
+# What this costs: commands lose the launcher's inner floor — no_new_privs, the
+# capability-bounding trim, the identity drop, and the per-command Landlock and
+# seccomp filters below, which the launcher is what applies.
+#
+# What it does not cost: anything that worked before. Under OpenShell execd is
+# not the sandbox init, so /code kernels were never wrapped anyway — that is
+# exactly what `hardening: degraded` reports. The floor only ever reached
+# commands, and commands were the one thing it broke.
+#
+# What still confines the workload: OpenShell itself — Landlock over the whole
+# sandbox, a private network namespace, the `sandbox` uid, and a deny-by-default
+# egress allowlist. See execd-policy.yaml.
+#
+# To restore the floor, set this to true and give the sandbox a policy that
+# permits memfd_create; `/command` stays broken until then.
+[hardening]
+enabled = false
+keep_capabilities = []
+
+# Applied by opensandbox-launcher, so both sections are inert while
+# [hardening] is disabled. Kept so the intended posture is not lost: they take
+# effect again the moment the floor can be turned back on.
+[seccomp]
+deny = ["mount", "ptrace", "bpf", "seccomp"]
+
+[landlock]
+enabled = true
+extra_writable = ["/workspace"]
+# /opt/opensandbox — session-gate and launcher binaries (always needed)
+# /opt/app-root    — UBI9 Python venv: jupyter, ipykernel, pip, etc.
+#                    Absent on Debian/slim images (Rancher path), harmless there.
+extra_readable = ["/opt/opensandbox", "/opt/app-root"]

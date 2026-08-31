@@ -1,0 +1,117 @@
+# sandbox-api Deployment.
+#
+# The sandbox-api sidecar exposes the management REST API (:8090).
+# It talks to the OpenShell gateway (openshell CLI) and to execd (/command).
+#
+# Prerequisites:
+#   - ServiceAccount sandbox-api (rbac.yaml)
+#   - Secret sandbox-credentials with SANDBOX_API_KEY
+#   - execd-service Service (created by the gateway when it starts the execd sandbox)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandbox-api
+  namespace: ${NAMESPACE}
+  labels:
+    app: sandbox-api
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sandbox-api
+  template:
+    metadata:
+      labels:
+        app: sandbox-api
+    spec:
+      serviceAccountName: sandbox-api
+
+      containers:
+        - name: sandbox-api
+          # Build from sandbox/sandbox/Dockerfile.sandbox-api and push to your registry.
+          # Example: image: registry.example.com/sovereign/sandbox-api:latest
+          image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/sandbox-api:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SANDBOX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sandbox-credentials
+                  key: SANDBOX_API_KEY
+            # execd is reachable via Service DNS on OpenShift — no relay needed.
+            - name: EXECD_URL
+              value: "http://execd-service.${NAMESPACE}.svc.cluster.local:44772"
+            - name: EXEC_SANDBOX_NAME
+              value: "code-exec"
+            - name: EXEC_SANDBOX_PORT
+              value: "44772"
+            # Gateway registration name must match gateway_id in gateway.toml.
+            - name: OPENSHELL_GATEWAY_NAME
+              value: "openshell-ocp"
+            - name: OPENSHELL_GATEWAY_URL
+              value: "http://openshell-gateway.${NAMESPACE}.svc.cluster.local:8080"
+            - name: SANDBOX_API_PORT
+              value: "8090"
+          ports:
+            - name: http
+              containerPort: 8090
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          volumeMounts:
+            - name: openshell-state
+              mountPath: /var/lib/openshell
+              readOnly: true
+
+      volumes:
+        - name: openshell-state
+          persistentVolumeClaim:
+            claimName: openshell-state
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sandbox-api
+  namespace: ${NAMESPACE}
+  labels:
+    app: sandbox-api
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  selector:
+    app: sandbox-api
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+
+---
+# Route exposes sandbox-api outside the cluster for ops/admin access.
+# Remove or tighten with an Ingress auth annotation for production.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: sandbox-api
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: sovereign-sandbox
+spec:
+  to:
+    kind: Service
+    name: sandbox-api
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
