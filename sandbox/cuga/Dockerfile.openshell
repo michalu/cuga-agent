@@ -1,0 +1,61 @@
+FROM python:3.12-slim-trixie
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
+RUN sh /uv-installer.sh && \
+    cp /root/.local/bin/uv /usr/local/bin/uv && \
+    rm /uv-installer.sh
+
+RUN groupadd -g 1000660000 sandbox && \
+    useradd -m -u 1000660000 -g sandbox sandbox
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+
+ENV UV_CACHE_DIR=/tmp/uv-cache
+RUN uv sync --frozen
+
+# Pre-bake the local embedding model at build time (build has network access).
+# The OpenShell policy denies huggingface.co egress at runtime, so without this
+# the local embedding function fails. The entrypoint seeds this baked cache into
+# writable /tmp, and HF_HUB_OFFLINE=1 keeps runtime model loads fully offline.
+RUN FASTEMBED_CACHE_PATH=/app/fastembed-cache \
+    /app/.venv/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+
+RUN mkdir -p /app/cuga_workspace /sandbox/cuga_workspace /tmp/cuga/dbs /tmp/cuga/logging && \
+    cp src/cuga/demo_tools/huggingface/contacts.txt /app/cuga_workspace/contacts.txt && \
+    cp src/cuga/demo_tools/huggingface/cuga_knowledge.md /app/cuga_workspace/cuga_knowledge.md && \
+    cp src/cuga/demo_tools/huggingface/cuga_playbook.md /app/cuga_workspace/cuga_playbook.md && \
+    cp src/cuga/demo_tools/huggingface/email_template.md /app/cuga_workspace/email_template.md && \
+    chown -R sandbox:sandbox /sandbox /tmp/cuga
+
+COPY cuga-openshell-demo.sh /usr/local/bin/cuga-openshell-demo
+RUN chmod +x /usr/local/bin/cuga-openshell-demo
+
+ENV PATH="/app/.venv/bin:/usr/local/bin:$PATH" \
+    CUGA_HOST=127.0.0.1 \
+    DYNACONF_SERVER_PORTS__DEMO=7860 \
+    CUGA_DBS_DIR=/tmp/cuga/dbs \
+    CUGA_LOGGING_DIR=/tmp/cuga/logging \
+    CUGA_FOLDER=/tmp/cuga/policies \
+    FASTEMBED_CACHE_PATH=/tmp/cuga/fastembed \
+    HF_HOME=/tmp/cuga/hf \
+    HF_HUB_OFFLINE=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+EXPOSE 7860
+
+# The supervisor validates that the image workspace (WORKDIR) is writable by the
+# sandbox identity. /app is build-time scratch owned by root and read-only in
+# cuga-policy.yaml, so leaving WORKDIR there fails provisioning. The entrypoint
+# runs from /sandbox anyway.
+WORKDIR /sandbox
+
+CMD ["/usr/local/bin/cuga-openshell-demo"]
