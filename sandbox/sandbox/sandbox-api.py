@@ -26,6 +26,7 @@ import asyncio
 import json
 import os
 import subprocess
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import httpx
@@ -45,12 +46,41 @@ EXEC_SANDBOX_PORT: int = int(os.environ.get("EXEC_SANDBOX_PORT", "44772"))
 # time) so the restart endpoint is self-contained.
 EXECD_POLICY_PATH: str = os.environ.get("EXECD_POLICY_PATH", "/opt/sandbox/execd-policy.yaml")
 EXECD_BUILD_CONTEXT: str = os.environ.get("EXECD_BUILD_CONTEXT", "/opt/sandbox/build-context")
+# Optional: register an OpenShell gateway on startup so that `openshell status`
+# and `openshell sandbox list` work inside the pod.  Set both env vars in the
+# Deployment to enable; omit either to skip registration.
+OPENSHELL_GATEWAY_NAME: str = os.environ.get("OPENSHELL_GATEWAY_NAME", "")
+OPENSHELL_GATEWAY_URL: str = os.environ.get("OPENSHELL_GATEWAY_URL", "")
 
 # ---------------------------------------------------------------------------
 # App + auth
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Sandbox management API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Register the OpenShell gateway on startup if env vars are provided."""
+    if OPENSHELL_GATEWAY_NAME and OPENSHELL_GATEWAY_URL:
+        import logging
+        _log = logging.getLogger("sandbox_api.lifespan")
+        r = subprocess.run(
+            ["openshell", "gateway", "add", OPENSHELL_GATEWAY_URL,
+             "--name", OPENSHELL_GATEWAY_NAME],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            _log.warning("openshell gateway add failed (rc=%d): %s", r.returncode, r.stderr.strip())
+        else:
+            _log.info("openshell gateway '%s' registered: %s", OPENSHELL_GATEWAY_NAME, r.stdout.strip())
+        subprocess.run(
+            ["openshell", "gateway", "select", OPENSHELL_GATEWAY_NAME],
+            capture_output=True,
+        )
+    yield
+
+
+app = FastAPI(title="Sandbox management API", version="0.1.0", lifespan=lifespan)
 
 
 def _verify(x_api_key: str = Header(..., alias="X-API-Key")) -> None:
@@ -120,7 +150,7 @@ async def _execd_command(
                 elif t == "error":
                     exit_code = int((event.get("error") or {}).get("exit_code", 1))
 
-    return "".join(stdout_parts), "".join(stderr_parts), exit_code
+    return "\n".join(stdout_parts), "\n".join(stderr_parts), exit_code
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +248,7 @@ async def threads(x_api_key: str = Header(..., alias="X-API-Key")) -> JSONRespon
     _verify(x_api_key)
 
     stdout, stderr, code = await _execd_command(
-        "find /workspace -mindepth 1 -maxdepth 1 -type d -printf '%f\\n'"
+        "ls -1 /workspace"
     )
 
     if code != 0:
