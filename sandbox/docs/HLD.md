@@ -7,7 +7,7 @@ independent containment boundaries. This document describes the overall system
 architecture, the rationale for key decisions, and the differences between the
 two supported deployment targets.
 
-OpenShell is the policy enforcement layer that wraps both the CUGA agent process and the execd code execution pod in private network namespaces — all inbound traffic is routed exclusively through the gateway, all outbound connections are checked per binary against a declared allowlist, each pod's filesystem is locked to declared read/write paths via Landlock, the LLM API key is injected at the gateway so it never reaches either pod, and every connection decision is emitted as a structured audit event.
+OpenShell is the policy enforcement layer that wraps both the CUGA agent process and the execd code execution pod in private network namespaces - all inbound traffic is routed exclusively through the gateway, all outbound connections are checked per binary against a declared allowlist, each pod's filesystem is locked to declared read/write paths via Landlock, the LLM API key is injected at the gateway so it never reaches either pod, and every connection decision is emitted as a structured audit event.
 
 ---
 
@@ -31,10 +31,10 @@ graph TB
 
     subgraph Sandboxes[Sandbox pods]
         direction LR
-        subgraph RoleA[Role A — CUGA sandbox]
+        subgraph RoleA[Role A - CUGA sandbox]
             CUGA[cuga start demo_crm]
         end
-        subgraph RoleB[Role B — execd sandbox]
+        subgraph RoleB[Role B - execd sandbox]
             execd[execd Jupyter kernel]
         end
     end
@@ -80,7 +80,7 @@ routes by `Host` header into the correct netns.
 
 ## 3. Two-boundary security model
 
-OpenShell is designed to wrap entire autonomous agent processes — its design
+OpenShell is designed to wrap entire autonomous agent processes - its design
 center is policy enforcement and isolation for agentic workloads (Watson
 Orchestrate and Red Hat are known reference users for this exact use case). Role
 A applies that capability to CUGA. Role B then adds a second, independent
@@ -106,7 +106,7 @@ table below shows what each boundary contributes independently.
 - **Role B without Role A** - execd itself remains well-isolated (deny-by-default
   egress, Landlock filesystem, no access to agent DBs or LLM key). The risk is
   the inverse: the CUGA agent process runs without an OpenShell wrapper, so the
-  agent itself — not the generated code — is unrestricted and can exfiltrate
+  agent itself - not the generated code - is unrestricted and can exfiltrate
   credentials, write to arbitrary paths, or make arbitrary outbound calls.
 - **Role A with Role B** - even when code execution is offloaded to an external
   sandbox, Role A is not redundant. It still enforces LLM key injection (the key
@@ -400,7 +400,7 @@ Workspace admin provisions "CUGA Agent" from Sovereign Core catalog
        └─ injects EXECD_URL + EXECD_API_KEY into CugaAgent CR via envFrom
             └─ cuga-operator applies to Deployment
                  └─ CUGA agent starts connected to sandbox automatically
-                 └─ no EXECD_URL hardcoded — picked up from sandbox-binding
+                 └─ no EXECD_URL hardcoded - picked up from sandbox-binding
 
 Additional agents (BYOA, LangGraph)
   └─ read sandbox-binding Secret directly
@@ -409,17 +409,17 @@ Additional agents (BYOA, LangGraph)
 
 Five steps to get there:
 
-1. **Catalog service definition** — register a `sovereign-sandbox` OSB service
+1. **Catalog service definition** - register a `sovereign-sandbox` OSB service
    entry in `cuga-service-broker` alongside the existing `general-agent` service.
-2. **`SandboxReconciler`** — controller in `cuga-service-broker` that deploys the
+2. **`SandboxReconciler`** - controller in `cuga-service-broker` that deploys the
    sandbox kustomize stack, runs the `openshell` CLI provisioning sequence, and
    writes Secret `sandbox-binding`. See §NS-2 for the detailed design.
-3. **Readiness gate** — `CugaAgentReconciler` returns `202 Accepted` and polls
+3. **Readiness gate** - `CugaAgentReconciler` returns `202 Accepted` and polls
    until `sandbox-binding` exists before injecting the binding into the agent CR.
-4. **`EXECD_URL` from service binding** — `CugaAgentReconciler` adds
+4. **`EXECD_URL` from service binding** - `CugaAgentReconciler` adds
    `envFrom: secretRef: sandbox-binding` to the agent Deployment patch. No CUGA
    graph code change needed.
-5. **API key on the CUGA→execd leg** — `ExecdExecutor` already reads
+5. **API key on the CUGA→execd leg** - `ExecdExecutor` already reads
    `execd_api_key`; it is delivered via `sandbox-binding` key `SANDBOX_API_KEY`.
 
 ---
@@ -482,7 +482,7 @@ and can be staffed separately, but they share a contract: the sandbox emits a
 
 ---
 
-### NS-1 — Sandbox as an independently deployable platform service
+### NS-1 - Sandbox as an independently deployable platform service
 
 **Problem today:** `make ocp-deploy` deploys the sandbox and CUGA together in
 the same namespace and in the same script.  There is no way to provision the
@@ -490,18 +490,18 @@ sandbox independently, share it across agents of the same tenant, or let a
 non-CUGA agent use it.
 
 **Target:** The sandbox (OpenShell gateway + execd + sandbox-api) is a
-standalone, tenant-scoped service with its own lifecycle — deployed once per
+standalone, tenant-scoped service with its own lifecycle - deployed once per
 tenant namespace, used by any number of agents regardless of type (CUGA, BYOA,
 LangGraph, AI apps).
 
 **What is needed:**
 
-1. **Separate repository / Helm chart / kustomize package** — the sandbox stack
+1. **Separate repository / Helm chart / kustomize package** - the sandbox stack
    lives independently of `cuga-openshell`.  Today it is a subdirectory;
    it should be publishable and deployable on its own, the same way
    `cuga-operator` is independent of the agent runtime.
 
-2. **Dedicated sandbox provisioner** — a controller (see NS-2) or an OSB-style
+2. **Dedicated sandbox provisioner** - a controller (see NS-2) or an OSB-style
    broker that provisions the sandbox stack on demand per tenant namespace and
    emits a Service Binding Secret:
    ```
@@ -510,12 +510,12 @@ LangGraph, AI apps).
      SANDBOX_API_KEY = <generated, 64-char hex>
    ```
 
-3. **Sandbox readiness signal** — before any agent is allowed to start, the
+3. **Sandbox readiness signal** - before any agent is allowed to start, the
    platform must verify that `GET /ping` on execd returns 200 and
    `GET /status` on sandbox-api reports `execd.reachable: true`.  This maps
    to requirement D2.
 
-4. **Multi-agent sharing within a tenant** — a single execd sandbox serves all
+4. **Multi-agent sharing within a tenant** - a single execd sandbox serves all
    threads from all agents in the tenant namespace.  Per-thread isolation
    (separate Jupyter `context_id`, `/workspace/<thread>`, `.venv`) is already
    implemented (D5, D6).  What is missing is the provisioner knowing not to
@@ -523,7 +523,7 @@ LangGraph, AI apps).
 
 ---
 
-### NS-2 — SandboxReconciler: where does the provisioner live?
+### NS-2 - SandboxReconciler: where does the provisioner live?
 
 **Question:** Should the sandbox get its own operator, or should it be a
 reconciler inside `cuga-service-broker`?
@@ -533,7 +533,7 @@ reconciler inside `cuga-service-broker`?
 An operator's reconcile loop makes sense when the reconciled resources are
 plain Kubernetes objects (Deployments, Services) that can be diffed against
 etcd.  The sandbox control plane is **OpenShell gateway**, whose state lives in
-`gateway.db` (SQLite on a PVC) and is mutated through the `openshell` CLI —
+`gateway.db` (SQLite on a PVC) and is mutated through the `openshell` CLI -
 not through `kubectl apply`.  A reconcile loop on top of `openshell` CLI calls
 adds complexity without providing the idempotency guarantees that make operators
 valuable.
@@ -544,8 +544,8 @@ parallel to the existing
 
 ```
 cuga-service-broker
-├── CugaAgentReconciler     — already exists; creates CugaAgent CR per agent instance
-└── SandboxReconciler       — new; provisions sandbox per tenant namespace
+├── CugaAgentReconciler     - already exists; creates CugaAgent CR per agent instance
+└── SandboxReconciler       - new; provisions sandbox per tenant namespace
       │
       ├── OSB trigger: PUT /v2/service_instances/:id
       │   (service_id: "sovereign-sandbox", plan: "standard")
@@ -568,7 +568,7 @@ cuga-service-broker
       │        g. return 201 Created
       │
       ├── Deprovision:
-      │   1. GET /threads on sandbox-api — wait until empty (timeout 5 min)
+      │   1. GET /threads on sandbox-api - wait until empty (timeout 5 min)
       │   2. openshell sandbox delete default
       │   3. kubectl delete -k sandbox/deploy/openshift/ -n <tenant-ns>
       │   4. kubectl delete secret sandbox-binding -n <tenant-ns>
@@ -596,7 +596,7 @@ is the lower-friction path.
 
 ---
 
-### NS-2a — Secret management: where is SANDBOX_API_KEY generated and stored?
+### NS-2a - Secret management: where is SANDBOX_API_KEY generated and stored?
 
 This is a cross-cutting concern for NS-2 and NS-3.  The answer differs by
 deployment mode.
@@ -607,8 +607,8 @@ deployment mode.
 `openssl rand -hex 32` and stored in two places:
 
 - **Kubernetes Secret `sandbox-credentials`** in the tenant namespace
-  (key: `SANDBOX_API_KEY`) — read by the `sandbox-api` pod at startup.
-- **PVC file `/var/lib/openshell/sandbox-api-key`** — survives pod restarts;
+  (key: `SANDBOX_API_KEY`) - read by the `sandbox-api` pod at startup.
+- **PVC file `/var/lib/openshell/sandbox-api-key`** - survives pod restarts;
   `setup.sh` is idempotent because it skips generation if the file already
   exists.
 
@@ -619,9 +619,9 @@ imperatively by `make ocp-deploy`.
 
 The `cuga-operator` supports two modes configured by `DYNACONF_SECRETS__MODE`:
 
-- **`local`** — secrets live in plain Kubernetes Secrets in the tenant
+- **`local`** - secrets live in plain Kubernetes Secrets in the tenant
   namespace.  Default for POC and non-GoRI deployments.
-- **`vault`** — secrets are stored in HashiCorp Vault and synced into
+- **`vault`** - secrets are stored in HashiCorp Vault and synced into
   Kubernetes Secrets by the **External Secrets Operator (ESO)**.  The operator
   configures the Vault address, K8s auth role, mount path, and KV version
   via [`DynaconfSecrets`](../cuga-operator/internal/vault/vault.go).
@@ -635,17 +635,17 @@ Follow the same two-mode pattern as the operator:
 | **`local`** (default) | `SandboxReconciler` generates with `crypto/rand` (Go) at provision time | Kubernetes Secret `sandbox-binding` in tenant namespace | `sandbox-api` pod via env; CUGA agent via `envFrom` |
 | **`vault`** | `SandboxReconciler` writes the generated key to Vault at path `<mount>/sandbox/<tenant-ns>/api-key`; ESO `ExternalSecret` syncs it into `sandbox-binding` k8s Secret | Vault (source of truth) + k8s Secret (replica) | same consumers; Secret is the delivery mechanism regardless of backend |
 
-#### Generation — concrete rules
+#### Generation - concrete rules
 
 1. **Generated by `SandboxReconciler`** at provision time, not by a shell
-   script.  Use `crypto/rand` in Go — same entropy as `openssl rand -hex 32`.
+   script.  Use `crypto/rand` in Go - same entropy as `openssl rand -hex 32`.
 2. **Generated once per tenant namespace**, not per agent.  Idempotency check:
    if Secret `sandbox-binding` already exists and contains `SANDBOX_API_KEY`,
    skip generation.
 3. **Never logged or returned** in API responses.  The broker's `202 Accepted`
    provision response does not include the key; consumers read it from the
    Secret / Service Binding directly.
-4. **Rotation** — out of scope for POC.  When needed: generate new key, update
+4. **Rotation** - out of scope for POC.  When needed: generate new key, update
    Secret, rolling-restart `sandbox-api` (reads key at startup).  CUGA agents
    using `envFrom: secretRef` pick up the new key on next pod restart.
 
@@ -672,11 +672,11 @@ stringData:
 
 The key names are chosen so that the agent Deployment can reference the Secret
 directly via `envFrom: secretRef: name: sandbox-binding` without any name
-mapping — the env var names in the Secret match what `ExecdExecutor` reads.
+mapping - the env var names in the Secret match what `ExecdExecutor` reads.
 
 ---
 
-### NS-3 — CUGA agent binding: switching an agent to use the sandbox
+### NS-3 - CUGA agent binding: switching an agent to use the sandbox
 
 **Problem today:** `DYNACONF_ADVANCED_FEATURES__EXECD_URL` and
 `DYNACONF_ADVANCED_FEATURES__EXECD_API_KEY` are hardcoded at deploy time in
@@ -686,7 +686,7 @@ or newly provisioned CUGA agent to an existing sandbox.
 **What is needed:**
 
 1. **`cuga-service-broker` reads sandbox binding and injects it into agent
-   patch** — when `buildCugaAgentCR` constructs the `CugaAgent` CR patches, it
+   patch** - when `buildCugaAgentCR` constructs the `CugaAgent` CR patches, it
    reads `Secret "sandbox-binding"` from the tenant namespace and adds:
    ```go
    // in provision.go, alongside MODEL_NAME and DYNACONF_SERVICE__INSTANCE_ID
@@ -699,16 +699,16 @@ or newly provisioned CUGA agent to an existing sandbox.
        "value": sandboxBinding.ExecdApiKey,
    })
    ```
-   No code change is needed in CUGA itself — `ExecdExecutor` already reads
+   No code change is needed in CUGA itself - `ExecdExecutor` already reads
    these env vars (D15, D16 are done).
 
-2. **Ordering: sandbox must be Ready before agent is provisioned** — the broker
+2. **Ordering: sandbox must be Ready before agent is provisioned** - the broker
    must either block agent provisioning until `SandboxReconciler` emits Ready,
    or return `202 Accepted` and poll.  The existing async
    `ASYNC_POLL_INTERVAL` / `ASYNC_POLL_MAX` machinery in the broker already
    supports this pattern.
 
-3. **`cuga-operator` manifest addition** — add placeholder env vars to
+3. **`cuga-operator` manifest addition** - add placeholder env vars to
    [`channels/packages/cugaagent/1.0.0/manifest.yaml`](../cuga-operator/channels/packages/cugaagent/1.0.0/manifest.yaml)
    so the operator does not strip them on reconcile:
    ```yaml
@@ -718,7 +718,7 @@ or newly provisioned CUGA agent to an existing sandbox.
      value: ""          # overridden by broker patch
    ```
 
-4. **`envFrom` alternative** — instead of individual env vars, the agent
+4. **`envFrom` alternative** - instead of individual env vars, the agent
    Deployment can reference the sandbox binding Secret directly via `envFrom`,
    which means the agent picks up a rotated key without a re-deploy:
    ```yaml

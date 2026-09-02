@@ -490,8 +490,8 @@ The `[policy/*]` lines come from the OpenShell supervisors and are the point of
 the exercise: every hop is an explicit, attributed decision.
 
 Each connection is evaluated by two engines and emits two log lines:
-- `engine:l7` — HTTP-aware check (method + URL path)
-- `engine:opa` — rule-set check (Open Policy Agent, evaluates the `.rego` policy file)
+- `engine:l7` - HTTP-aware check (method + URL path)
+- `engine:opa` - rule-set check (Open Policy Agent, evaluates the `.rego` policy file)
 
 Both must allow a connection for it to proceed.
 
@@ -661,7 +661,7 @@ Both must allow a connection for it to proceed.
 File contents (<=2 KB):
   --- /workspace/smoke-1788282553/config.toml ---
   version = "1.0"
-  --- /workspace/smoke-1788282553/contacts_export.txt ---  (13683 bytes — showing first 5 lines)
+  --- /workspace/smoke-1788282553/contacts_export.txt ---  (13683 bytes - showing first 5 lines)
   John Smith
   Jane Johnson
   Michael Williams
@@ -719,7 +719,7 @@ Connection details (`EXECD_URL`, `SANDBOX_API_KEY`) come from `GET /info` on
 curl -H "X-API-Key: $SANDBOX_API_KEY" https://sandbox-api-<ns>.apps.<cluster>/info
 ```
 
-### Open questions — tool calling for external agents
+### Open questions - tool calling for external agents
 
 CUGA injects its tools into the execd kernel by serialising async callables into
 the `POST /code/context` payload (`context_locals` dict). A LangGraph or LangFlow
@@ -733,18 +733,18 @@ agent cannot do this. Options:
 | **D. Code-only, no tool calling** | Agent generates pure Python; all I/O via files, HTTP to known endpoints, or stdlib | Significantly limits capability; only works if LLM can generate self-contained code reliably. |
 
 **Current state:** option B is implicitly what the BYOA example above does if the
-agent reuses the CUGA deployment — but it is undocumented, untested, and depends
+agent reuses the CUGA deployment - but it is undocumented, untested, and depends
 on the CUGA sandbox remaining reachable from the execd sandbox. Options A and C
 have not been prototyped. The tool-calling gap is the main blocker for a complete
 BYOA validation.
 
-### Multi-agent tool routing — required work
+### Multi-agent tool routing - required work
 
 The current implementation assumes a single CUGA agent with a single tool
 registry. Two gaps must be addressed before multiple agents (or multiple BYOA
 agents) can share one execd pod:
 
-#### Gap 1 — `function_call_url` is global, not per-agent
+#### Gap 1 - `function_call_url` is global, not per-agent
 
 [`CallApiHelper.get_function_call_url()`](../../src/cuga/backend/cuga_graph/nodes/cuga_lite/executors/common/call_api_helper.py)
 reads the tool registry URL from global `settings` and bakes it into the
@@ -759,7 +759,7 @@ reading from global settings. This is a one-line change at the call site; the
 injection mechanism in `create_remote_call_api_code` already accepts an
 arbitrary URL.
 
-#### Gap 2 — `execd-policy.yaml` hardcodes a single registry address
+#### Gap 2 - `execd-policy.yaml` hardcodes a single registry address
 
 ```yaml
 cuga_tool_registry:  # cuga-demo.<ns>.svc.cluster.local:8001
@@ -771,7 +771,7 @@ address. The OpenShell egress policy must cover all of them. Two options:
 | Option | How | Trade-off |
 |---|---|---|
 | **Per-agent execd pod** | Each agent gets its own execd pod with its own `execd-policy.yaml` listing only its registry address | Clean isolation; N pods for N agents; aligns with catalog-per-agent provisioning |
-| **Shared execd pod, namespace-wide policy** | Single policy allows `*.<ns>.svc.cluster.local:8001`; all agents share one pod | Fewer pods; execd can call back to any agent in the namespace — looser boundary |
+| **Shared execd pod, namespace-wide policy** | Single policy allows `*.<ns>.svc.cluster.local:8001`; all agents share one pod | Fewer pods; execd can call back to any agent in the namespace - looser boundary |
 
 The per-agent pod option aligns better with the catalog-provisioned model
 (each sandbox is a catalog entry per tenant/agent) and avoids cross-agent
@@ -784,7 +784,7 @@ call back to the same registry.
 
 ---
 
-## 12. Deployment — Rancher Desktop (macOS)
+## 12. Deployment - Rancher Desktop (macOS)
 
 ### Prerequisites
 
@@ -805,7 +805,7 @@ make rancher-up \
 
 `rancher-up` runs two steps in sequence:
 
-**Step 1 — sandbox stack** (`_rancher-sandbox-up`):
+**Step 1 - sandbox stack** (`_rancher-sandbox-up`):
 1. Generates `SANDBOX_API_KEY` (`openssl rand -hex 32`) → `/var/lib/openshell/sandbox-api-key` (idempotent).
 2. Starts `docker compose up -d` (gateway + relay + sandbox-api) from `sandbox/deploy/rancher/docker-compose.yml`.
 3. Registers gateway: `openshell gateway add http://localhost:8080 --name openshell-docker`.
@@ -815,7 +815,7 @@ make rancher-up \
 7. Creates execd sandbox: `openshell sandbox create --name code-exec --policy execd-policy.yaml --detach`.
 8. Forwards execd port: `openshell forward start 44772 code-exec --background`.
 
-**Step 2 — CUGA** (`_rancher-cuga-up`):
+**Step 2 - CUGA** (`_rancher-cuga-up`):
 1. Builds `cuga-openshell:local` Docker image from `cuga/Dockerfile.openshell` with the full repo as build context.
 2. Creates/updates OpenAI provider: `openshell provider create --name cuga-openai --type openai`.
 3. Sets inference route: `openshell inference set --provider cuga-openai --model <MODEL_NAME> --timeout 300`.
@@ -847,11 +847,11 @@ make rancher-down
 2. `openshell forward stop 44772 code-exec` + `openshell sandbox delete code-exec`
 3. `docker compose down` (gateway + relay + sandbox-api)
 
-PVC state (`/var/lib/openshell/`) is preserved — the API key and JWT keypair survive `rancher-down`. Run again with the same credentials to resume without regenerating keys.
+PVC state (`/var/lib/openshell/`) is preserved - the API key and JWT keypair survive `rancher-down`. Run again with the same credentials to resume without regenerating keys.
 
 ---
 
-## 13. Deployment — OpenShift (remote amd64 cluster)
+## 13. Deployment - OpenShift (remote amd64 cluster)
 
 ### Prerequisites
 
@@ -890,13 +890,13 @@ make ocp-deploy \
 
 `NAMESPACE` defaults to `sandbox-$(whoami)`. `ocp-deploy` runs two steps in sequence:
 
-**Step 1 — sandbox stack** (`_ocp-deploy-sandbox`):
+**Step 1 - sandbox stack** (`_ocp-deploy-sandbox`):
 1. Creates namespace (idempotent): `oc create namespace <ns> --dry-run=client | oc apply`.
 2. Grants SCCs: `anyuid` to `openshell-gateway` SA; `privileged` + `anyuid` to `default` SA.
 3. Creates secrets (idempotent):
-   - `llm-credentials` — `OPENAI_API_KEY` (skipped if already present)
-   - `sandbox-credentials` — generated `SANDBOX_API_KEY` (printed once; store securely)
-   - `icr-pull-secret` — docker-registry secret from `ICR_API_KEY`
+   - `llm-credentials` - `OPENAI_API_KEY` (skipped if already present)
+   - `sandbox-credentials` - generated `SANDBOX_API_KEY` (printed once; store securely)
+   - `icr-pull-secret` - docker-registry secret from `ICR_API_KEY`
 4. Mirrors Docker Hub base image to ICR: `opensandbox/execd` → `icr.io/<ns>/opensandbox-execd:latest` (skipped if present).
 5. In-cluster build of `sandbox-api` image: `oc start-build sandbox-api --from-dir=sandbox --follow`.
 6. In-cluster build of `openshell-execd` image: `oc start-build openshell-execd --from-dir=<tmpdir> --follow` (patches `ARG EXECD_IMAGE` in `Dockerfile.execd.ocp` before build).
@@ -909,7 +909,7 @@ make ocp-deploy \
    - `openshell sandbox create --name code-exec --from <execd-imagestream> --policy execd-policy.yaml --detach`
    - `openshell service expose code-exec 44772 execd`
 
-**Step 2 — CUGA** (`_ocp-deploy-cuga`):
+**Step 2 - CUGA** (`_ocp-deploy-cuga`):
 1. Builds CUGA image locally for `linux/amd64`: `docker build --platform linux/amd64 -f cuga/Dockerfile.openshell`.
 2. Pushes to registry: `docker push icr.io/<ns>/cuga-openshell:latest`.
 3. Applies CUGA kustomize: RBAC (`cuga-demo` SA) + `cuga-demo` Service + Route.
@@ -958,7 +958,7 @@ make smoke-test NAMESPACE="sandbox-<yourname>"
 ./smoke-test.sh --platform=openshift --namespace=$NAMESPACE
 ```
 
-### Tear down — keep PVC and namespace
+### Tear down - keep PVC and namespace
 
 ```bash
 make ocp-teardown NAMESPACE=<namespace>
@@ -977,18 +977,18 @@ make ocp-teardown NAMESPACE=<namespace>
 
 PVC `openshell-state` (JWT keypair + `gateway.db`) and the namespace itself are preserved.
 
-### Tear down — full wipe
+### Tear down - full wipe
 
 ```bash
 make ocp-wipe NAMESPACE=<namespace>
 ```
 
 `ocp-wipe`:
-1. `oc delete namespace <namespace>` — removes everything inside the namespace including PVC.
+1. `oc delete namespace <namespace>` - removes everything inside the namespace including PVC.
 2. Deletes cluster-scoped ClusterRole/ClusterRoleBinding.
-3. `openshell gateway remove openshell-ocp` — deregisters gateway from local CLI.
+3. `openshell gateway remove openshell-ocp` - deregisters gateway from local CLI.
 
-> **Note:** `ocp-wipe` does **not** remove the Agent Sandbox CRD or its controller (`agent-sandbox-system` namespace) — those are cluster-wide and shared across namespaces.
+> **Note:** `ocp-wipe` does **not** remove the Agent Sandbox CRD or its controller (`agent-sandbox-system` namespace) - those are cluster-wide and shared across namespaces.
 
 ### Troubleshooting
 
@@ -1012,7 +1012,7 @@ oc logs deploy/sandbox-proxy -n $NAMESPACE
 oc get endpoints cuga-demo -n $NAMESPACE
 openshell service list   # requires port-forward to gateway active
 
-# 503 on Route — check sandbox-proxy → gateway → sandbox chain
+# 503 on Route - check sandbox-proxy → gateway → sandbox chain
 oc logs deploy/sandbox-proxy -n $NAMESPACE
 openshell service list
 ```
