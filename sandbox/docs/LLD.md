@@ -738,6 +738,50 @@ on the CUGA sandbox remaining reachable from the execd sandbox. Options A and C
 have not been prototyped. The tool-calling gap is the main blocker for a complete
 BYOA validation.
 
+### Multi-agent tool routing — required work
+
+The current implementation assumes a single CUGA agent with a single tool
+registry. Two gaps must be addressed before multiple agents (or multiple BYOA
+agents) can share one execd pod:
+
+#### Gap 1 — `function_call_url` is global, not per-agent
+
+[`CallApiHelper.get_function_call_url()`](../../src/cuga/backend/cuga_graph/nodes/cuga_lite/executors/common/call_api_helper.py)
+reads the tool registry URL from global `settings` and bakes it into the
+`call_api` helper code that is injected into every execd kernel. All kernels
+therefore call back to the same registry regardless of which agent owns the
+thread.
+
+**Fix:** `execute_for_cuga_lite` already receives `state: AgentState`. The
+registry URL should be carried per-agent (e.g. in `AgentState` or agent
+settings) and passed explicitly to `create_remote_call_api_code` instead of
+reading from global settings. This is a one-line change at the call site; the
+injection mechanism in `create_remote_call_api_code` already accepts an
+arbitrary URL.
+
+#### Gap 2 — `execd-policy.yaml` hardcodes a single registry address
+
+```yaml
+cuga_tool_registry:  # cuga-demo.<ns>.svc.cluster.local:8001
+```
+
+With multiple agents each has its own tool registry Service at a different
+address. The OpenShell egress policy must cover all of them. Two options:
+
+| Option | How | Trade-off |
+|---|---|---|
+| **Per-agent execd pod** | Each agent gets its own execd pod with its own `execd-policy.yaml` listing only its registry address | Clean isolation; N pods for N agents; aligns with catalog-per-agent provisioning |
+| **Shared execd pod, namespace-wide policy** | Single policy allows `*.<ns>.svc.cluster.local:8001`; all agents share one pod | Fewer pods; execd can call back to any agent in the namespace — looser boundary |
+
+The per-agent pod option aligns better with the catalog-provisioned model
+(each sandbox is a catalog entry per tenant/agent) and avoids cross-agent
+callback risk. The shared pod option is cheaper and sufficient when all agents
+in the namespace are trusted (single-tenant deployment).
+
+**Current state:** neither option is implemented. Until this is resolved,
+multi-agent deployments must use separate namespaces or accept that all threads
+call back to the same registry.
+
 ---
 
 ## 12. Deployment — Rancher Desktop (macOS)

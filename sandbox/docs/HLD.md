@@ -7,6 +7,8 @@ independent containment boundaries. This document describes the overall system
 architecture, the rationale for key decisions, and the differences between the
 two supported deployment targets.
 
+OpenShell is the policy enforcement layer that wraps both the CUGA agent process and the execd code execution pod in private network namespaces — all inbound traffic is routed exclusively through the gateway, all outbound connections are checked per binary against a declared allowlist, each pod's filesystem is locked to declared read/write paths via Landlock, the LLM API key is injected at the gateway so it never reaches either pod, and every connection decision is emitted as a structured audit event.
+
 ---
 
 ## 2. System overview
