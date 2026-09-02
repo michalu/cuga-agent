@@ -12,40 +12,60 @@ two supported deployment targets.
 ## 2. System overview
 
 ```mermaid
-graph TD
+graph TB
     User([External user])
 
-    subgraph Ingress["Ingress layer"]
-        HAProxy["HAProxy Route<br/>(TLS termination)"]
-        Proxy["sandbox-proxy nginx<br/>Host-header rewrite<br/>OpenShift only"]
+    subgraph Ingress[Ingress layer]
+        direction LR
+        HAProxy[HAProxy Route]
+        Proxy[sandbox-proxy nginx]
     end
 
-    subgraph GWBlock["Control plane"]
-        GW["OpenShell Gateway<br/>policy enforcement - PID 1 model<br/>LLM key injection on egress<br/>sandbox lifecycle create/delete<br/>Host-header routing into netns"]
-        SandboxAPI["sandbox-api :8090<br/>management sidecar<br/>out of request path"]
+    subgraph ControlPlane[Control plane]
+        direction LR
+        GW[OpenShell Gateway]
+        SandboxAPI[sandbox-api 8090]
     end
 
-    subgraph RoleA["Role A - CUGA sandbox - cuga-policy.yaml"]
-        CUGA["cuga start demo_crm<br/>:7860 Gradio UI / :8001 tool registry"]
+    subgraph Sandboxes[Sandbox pods]
+        direction LR
+        subgraph RoleA[Role A — CUGA sandbox]
+            CUGA[cuga start demo_crm]
+        end
+        subgraph RoleB[Role B — execd sandbox]
+            execd[execd Jupyter kernel]
+        end
     end
 
-    subgraph RoleB["Role B - execd sandbox - execd-policy.yaml"]
-        execd["execd + Jupyter kernel<br/>:44772"]
+    subgraph External[External services]
+        direction LR
+        LLM["LLM endpoint"]
+        PyPI["PyPI"]
     end
 
-    LLM["LLM endpoint<br/>external"]
-    PyPI["PyPI<br/>external"]
+    %% ── Flow 1: user request ──────────────────────────────────────────
+    User      -->|"① HTTPS"| HAProxy
+    HAProxy   -->|"① HTTP 7860"| Proxy
+    Proxy     -->|"① rewrite Host header"| GW
+    GW        -->|"① route into CUGA netns"| CUGA
 
-    User -->|HTTPS| HAProxy
-    HAProxy -->|HTTP :7860| Proxy
-    Proxy -->|rewrites Host header| GW
-    GW -->|routes into CUGA netns| CUGA
-    CUGA -->|POST inference.local:443| LLM
-    CUGA -->|POST /code /code/context| GW
-    GW -->|proxies into execd netns| execd
-    execd -->|POST /functions/call :8001| GW
-    GW -->|tool callback| CUGA
-    execd -->|uv pip install| PyPI
+    %% ── Flow 2: LLM inference ─────────────────────────────────────────
+    CUGA -->|"② POST inference.local (supervisor intercept)"| GW
+    GW   -->|"② forward + inject LLM key (openshell_inference)"| LLM
+
+    %% ── Flow 3: code execution ────────────────────────────────────────
+    CUGA -->|"③ POST /code · /code/context · /command"| GW
+    GW   -->|"③ proxy into execd netns"| execd
+
+    %% ── Flow 4: tool callback ─────────────────────────────────────────
+    execd -->|"④ POST /functions/call (supervisor intercept)"| GW
+    GW    -->|"④ tool callback (cuga_tool_registry)"| CUGA
+
+    %% ── Flow 5: package install ───────────────────────────────────────
+    execd -->|"⑤ uv pip install (supervisor intercept)"| GW
+    GW    -->|"⑤ forward (python_package_index)"| PyPI
+
+    %% ── Lifecycle (out-of-band) ───────────────────────────────────────
     SandboxAPI -.->|sandbox list/restart| GW
 ```
 
@@ -58,7 +78,14 @@ routes by `Host` header into the correct netns.
 
 ## 3. Two-boundary security model
 
-Neither boundary alone is sufficient.
+OpenShell is designed to wrap entire autonomous agent processes — its design
+center is policy enforcement and isolation for agentic workloads (Watson
+Orchestrate and Red Hat are known reference users for this exact use case). Role
+A applies that capability to CUGA. Role B then adds a second, independent
+boundary specifically around generated code execution.
+
+Whether to run CUGA inside OpenShell (Role A) is a deployment decision. The
+table below shows what each boundary contributes independently.
 
 | | Role A - CUGA pod | Role B - execd pod |
 |---|---|---|
@@ -69,11 +96,23 @@ Neither boundary alone is sufficient.
 | **Privilege** | Unprivileged user, no escalation | Unprivileged user, no escalation |
 | **Isolation** | n/a | Separate pod, separate process, no shared env/memory |
 
-- **Role A without Role B** - generated code runs inside the agent process; it
-  can reach the inference gateway, read agent state, and write to agent databases.
-- **Role B without Role A** - the agent process is unrestricted; it could
-  exfiltrate the LLM key, write outside its sandbox, or make arbitrary outbound
-  calls.
+- **Role A without Role B** - generated code executes inside the agent process
+  with no isolation boundary; it can read agent state, write to agent databases,
+  and reach the inference gateway directly. This is where Role A provides the
+  most critical protection: without an external code sandbox, wrapping the agent
+  process itself is the only line of defence.
+- **Role B without Role A** - execd itself remains well-isolated (deny-by-default
+  egress, Landlock filesystem, no access to agent DBs or LLM key). The risk is
+  the inverse: the CUGA agent process runs without an OpenShell wrapper, so the
+  agent itself — not the generated code — is unrestricted and can exfiltrate
+  credentials, write to arbitrary paths, or make arbitrary outbound calls.
+- **Role A with Role B** - even when code execution is offloaded to an external
+  sandbox, Role A is not redundant. It still enforces LLM key injection (the key
+  never enters the agent pod), restricts the agent's own egress to `inference.local`
+  and `execd-service` only, locks the agent filesystem read-only, and provides a
+  full audit trail of every outbound connection. The main difference is that
+  with Role B in place, malicious generated code is contained in the execd pod
+  and cannot affect the agent process. Without Role B it could.
 
 ---
 
@@ -111,7 +150,7 @@ Neither boundary alone is sufficient.
 sequenceDiagram
     participant User
     participant HAProxy as HAProxy Route
-    participant Proxy as sandbox-proxy (nginx)
+    participant Proxy as sandbox-proxy nginx
     participant GW as OpenShell Gateway
     participant CUGA as cuga-demo sandbox
     participant LLM as LLM endpoint
@@ -119,37 +158,37 @@ sequenceDiagram
     participant Tools as CUGA tool registry
     participant PyPI as PyPI
 
-    User->>HAProxy: HTTPS :443
+    User->>HAProxy: HTTPS 443
     Note over HAProxy: TLS termination
-    HAProxy->>Proxy: HTTP :7860
-    Note over Proxy: rewrites Host to<br/>openshell--cuga-demo--ui<br/>.openshell.localhost
-    Proxy->>GW: HTTP :8080
+    HAProxy->>Proxy: HTTP 7860
+    Note over Proxy: rewrites Host to openshell--cuga-demo--ui.openshell.localhost
+    Proxy->>GW: HTTP 8080
     Note over GW: routes into CUGA netns
     GW->>CUGA: request reaches FastAPI
     Note over CUGA: SSE stream begins
 
-    CUGA->>GW: POST inference.local:443
-    Note over GW: openshell_inference ALLOWED<br/>injects real API key
+    CUGA->>GW: POST inference.local
+    Note over GW: openshell_inference ALLOWED - injects real API key
     GW->>LLM: forward with real key
     LLM-->>GW: generated Python code
     GW-->>CUGA: response
 
-    CUGA->>GW: POST execd-service:44772/code/context
+    CUGA->>GW: POST execd-service/code/context
     Note over GW: cuga_code_sandbox ALLOWED
     GW->>execd: create kernel context
 
-    CUGA->>GW: POST execd-service:44772/code
+    CUGA->>GW: POST execd-service/code
     GW->>execd: execute code
 
-    execd->>GW: POST cuga-demo:8001/functions/call
+    execd->>GW: POST cuga-demo/functions/call
     Note over GW: cuga_tool_registry ALLOWED
     GW->>Tools: call tool
     Tools-->>GW: tool result
     GW-->>execd: result
     Note over execd: repeat per tool call
 
-    execd->>GW: GET pypi.org:443
-    Note over GW: python_package_index ALLOWED<br/>binary path: /opt/app-root/bin/uv
+    execd->>GW: GET pypi.org
+    Note over GW: python_package_index ALLOWED
     GW->>PyPI: fetch wheel
     PyPI-->>GW: wheel
     GW-->>execd: package installed
@@ -157,7 +196,7 @@ sequenceDiagram
     execd-->>GW: execution output
     GW-->>CUGA: output
 
-    CUGA->>GW: POST inference.local:443
+    CUGA->>GW: POST inference.local
     Note over GW: openshell_inference ALLOWED
     GW->>LLM: final answer synthesis
     LLM-->>GW: final answer

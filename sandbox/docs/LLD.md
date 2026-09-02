@@ -16,8 +16,6 @@ sandbox/
 │       ├── architecture.png
 │       └── demo.png
 │
-├── catalog/                      # Sovereign Core catalog onboarding
-│
 ├── cuga/                         # Role A - CUGA agent sandbox
 │   ├── Dockerfile.openshell      # Builds the CUGA image (wraps cuga start demo_crm)
 │   ├── cuga-entrypoint.sh        # Env wiring + TCP proxy PID for netns bridge
@@ -491,89 +489,192 @@ Verified run on OpenShift - all four layers in chronological order.
 The `[policy/*]` lines come from the OpenShell supervisors and are the point of
 the exercise: every hop is an explicit, attributed decision.
 
+Each connection is evaluated by two engines and emits two log lines:
+- `engine:l7` — HTTP-aware check (method + URL path)
+- `engine:opa` — rule-set check (Open Policy Agent, evaluates the `.rego` policy file)
+
+Both must allow a connection for it to proceed.
+
 ```
+# Verify all three sandbox pods are Running and the CUGA endpoint responds.
 ==> Preflight  [openshift]
   ok  cuga    (Pod) : openshell--cuga-demo  [ns=sandbox-michal1]
   ok  execd   (Pod) : openshell--code-exec  [ns=sandbox-michal1]
   ok  gateway (Pod) : openshell-gateway-6cfb67845b-nqblr  [ns=sandbox-michal1]
   ok  CUGA reachable at https://cuga-demo-sandbox-michal1.apps.agent-cluster.cp.fyre.ibm.com
 
+# Send the three-step prompt over SSE; tool calls are auto-approved, Answer event marks completion.
 ==> Sending prompt  [you → cuga via HTTP]
-  ..  Thread ID : smoke-1788170886
+  ..  Thread ID : smoke-1788282553
   ..  Prompt    : Do three things in order:
-                  1. Use the CRM tool to list available contacts and save their
-                     names to /workspace/contacts_export.txt using Python.
-                  2. Install the 'tomli' package with pip, then use it in Python
-                     to write a small TOML file /workspace/config.toml containing
-                     key version="1.0".
-                  3. Run a shell command that appends the line 'smoke-test ok' to
-                     /workspace/contacts_export.txt and then prints the last 3
-                     lines of that file.
+1. Use the CRM tool to list available contacts and save their names to /workspace/contacts_export.txt using Python.
+2. Install the 'tomli' package with pip, then use it in Python to write a small TOML file /workspace/config.toml containing key version="1.0".
+3. Run a shell command that appends the line 'smoke-test ok' to /workspace/contacts_export.txt and then prints the last 3 lines of that file.
   ..  Waiting up to 120s (auto-approving tool calls)...
   Stream: HTTP 200
-  Event: name='CodeAgent'            data_len=426
-  Event: name='CodeAgent'            data_len=1449
-  Event: name='CodeAgent'            data_len=200933    ← large: CRM contacts + pip output
-  Event: name='CodeAgent_Reasoning'  data_len=744
-  Event: name='CodeAgent'            data_len=744
-  Event: name='FinalAnswerAgent'     data_len=799
-  Event: name='Answer'               data_len=23177
+  Event: name='CodeAgent' data_len=426
+  Event: name='CodeAgent' data_len=1633
+  Event: name='CodeAgent' data_len=626
+  Event: name='CodeAgent' data_len=929
+  Event: name='CodeAgent' data_len=457
+  Event: name='CodeAgent' data_len=201
+  Event: name='CodeAgent' data_len=457
+  Event: name='CodeAgent_Reasoning' data_len=925
+  Event: name='CodeAgent' data_len=925
+  Event: name='CodeAgent' data_len=925
+  Event: name='FinalAnswerAgent' data_len=972
+  Event: name='Answer' data_len=1016
   Agent finished (Answer event received)
   Total approvals sent: 0                               ← fully auto-approved; no HITL needed
 
-==> Run timeline  [thread=smoke-1788170886]
+# Chronological policy decisions from both sandbox supervisors; each hop is an explicit, attributed decision.
+==> Run timeline  [thread=smoke-1788282553]
 
-  --- Policy decisions  [cuga-demo sandbox] ---         ← heartbeat/keepalive to execd while LLM thinks
-  10:08:13.667  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST .../command [policy:cuga_code_sandbox engine:l7]
-  ...
+  # CUGA polls execd with /command keepalives and calls the LLM via inference.local while planning; no code runs yet.
+  --- Policy decisions  [cuga-demo sandbox] ---
+  17:09:14.733  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:14.734  [policy/cuga]  ALLOWED inference.local:443
+  17:09:15.874  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:17.230  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:18.351  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:19.717  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:20.868  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:22.200  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
 
-  10:09:00.437  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST .../code/context [policy:cuga_code_sandbox engine:l7]
-  10:09:00.496  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST .../code/context [policy:cuga_code_sandbox engine:opa]
-  10:09:00.542  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST .../code         [policy:cuga_code_sandbox engine:l7]
+  # LLM plan ready; CUGA registers a kernel context (/code/context) and submits the first code block (/code).
+  17:09:22.815  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/code/context [policy:cuga_code_sandbox engine:l7]
+  17:09:22.944  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/code/context [policy:cuga_code_sandbox engine:opa]
+  17:09:23.029  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/code [policy:cuga_code_sandbox engine:l7]
+  17:09:23.387  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
 
-  --- Policy decisions  [execd sandbox] ---             ← bootstrap: venv created, pip updated
-  10:09:01.095  [policy/execd]  ALLOWED /opt/app-root/bin/uv(2044) -> pypi.org:443 [policy:python_package_index engine:opa]
-  10:09:01.167  [policy/execd]  ALLOWED GET http://pypi.org:443/simple/pip/         [policy:python_package_index engine:l7]
+  # execd bootstraps the per-thread venv: uv contacts pypi.org, allowed by binary-path policy.
+  --- Policy decisions  [execd sandbox] ---
+  17:09:23.884  [policy/execd]  ALLOWED /opt/app-root/bin/uv(36745) -> pypi.org:443 [policy:python_package_index engine:opa]
+  17:09:23.983  [policy/execd]  ALLOWED GET http://pypi.org:443/simple/pip/ [policy:python_package_index engine:l7]
 
+  # Rule-set engine confirms the /code request while execd finishes bootstrapping.
+  --- Policy decisions  [cuga-demo sandbox] ---
+  17:09:24.453  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/code [policy:cuga_code_sandbox engine:opa]
+
+  # Venv bootstrap complete; no user output yet.
   --- Code execution    [execd] ---
-  10:09:01.448  [execd:code ✓]  duration=949ms  output_len=0
+  17:09:24.455  [execd:code ✓]  duration=1508ms  output_len=0
 
-  --- Policy decisions  [execd sandbox] ---             ← step 1: code calls back to CRM tool registry
-  10:09:01.653  [policy/execd]  ALLOWED /usr/bin/python3.12(2029) -> POST http://cuga-demo...:8001/functions/call [policy:cuga_tool_registry engine:l7]
+  # CUGA dispatches the next code block; execd begins step 1 (CRM tool call).
+  --- Policy decisions  [cuga-demo sandbox] ---
+  17:09:24.530  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/code [policy:cuga_code_sandbox engine:l7]
+  17:09:24.727  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+
+  # Step 1: execd calls the CRM tool registry; four paginated requests fetch all contacts.
+  --- Policy decisions  [execd sandbox] ---
+  17:09:24.786  [policy/execd]  ALLOWED /usr/bin/python3.12(36730) -> POST http://cuga-demo.sandbox-michal1.svc.cluster.local:8001/functions/call [policy:cuga_tool_registry engine:l7]
 
   --- Tools called      [cuga-demo] ---
-  10:09:08.205  [tool]  crm_get_contacts_contacts_get  skip=0  limit=300
+  17:09:24.857  [tool]  crm_get_contacts_contacts_get  skip=0  limit=300
 
-  --- Policy decisions  [execd sandbox] ---             ← step 2: pip installs tomli
-  10:09:08.368  [policy/execd]  ALLOWED /opt/app-root/bin/uv(2065) -> pypi.org:443              [policy:python_package_index engine:opa]
-  10:09:08.434  [policy/execd]  ALLOWED GET http://pypi.org:443/simple/tomli/                   [policy:python_package_index engine:l7]
-  10:09:08.529  [policy/execd]  ALLOWED /opt/app-root/bin/uv(2065) -> files.pythonhosted.org:443 [policy:python_package_index engine:opa]
-  10:09:08.549  [policy/execd]  ALLOWED GET .../tomli-2.4.1-cp312-cp312-manylinux2014_x86_64...whl.metadata [policy:python_package_index engine:l7]
-  10:09:08.569  [policy/execd]  ALLOWED GET .../tomli-2.4.1-cp312-cp312-manylinux2014_x86_64...whl          [policy:python_package_index engine:l7]
+  --- Policy decisions  [execd sandbox] ---
+  17:09:24.918  [policy/execd]  ALLOWED /usr/bin/python3.12(36730) -> POST http://cuga-demo.sandbox-michal1.svc.cluster.local:8001/functions/call [policy:cuga_tool_registry engine:opa]
+  17:09:24.944  [policy/execd]  ALLOWED /usr/bin/python3.12(36730) -> POST http://cuga-demo.sandbox-michal1.svc.cluster.local:8001/functions/call [policy:cuga_tool_registry engine:l7]
 
-  --- Code execution    [execd] ---                     ← step 2+3 combined: install + write TOML + shell append
-  10:09:13.758  [execd:code ✓]  duration=12293ms  output_len=185833
+  --- Tools called      [cuga-demo] ---
+  17:09:24.986  [tool]  crm_get_contacts_contacts_get  skip=300  limit=300
 
-==> Workspace  [openshell--code-exec:/workspace/smoke-1788170886]
-  /workspace/smoke-1788170886/config.toml
-  /workspace/smoke-1788170886/contacts_export.txt
+  --- Policy decisions  [execd sandbox] ---
+  17:09:25.033  [policy/execd]  ALLOWED /usr/bin/python3.12(36730) -> POST http://cuga-demo.sandbox-michal1.svc.cluster.local:8001/functions/call [policy:cuga_tool_registry engine:opa]
+  17:09:25.062  [policy/execd]  ALLOWED /usr/bin/python3.12(36730) -> POST http://cuga-demo.sandbox-michal1.svc.cluster.local:8001/functions/call [policy:cuga_tool_registry engine:l7]
 
-  --- /workspace/smoke-1788170886/config.toml ---
+  --- Tools called      [cuga-demo] ---
+  17:09:25.094  [tool]  crm_get_contacts_contacts_get  skip=600  limit=300
+
+  --- Policy decisions  [execd sandbox] ---
+  17:09:25.134  [policy/execd]  ALLOWED /usr/bin/python3.12(36730) -> POST http://cuga-demo.sandbox-michal1.svc.cluster.local:8001/functions/call [policy:cuga_tool_registry engine:opa]
+  17:09:25.160  [policy/execd]  ALLOWED /usr/bin/python3.12(36730) -> POST http://cuga-demo.sandbox-michal1.svc.cluster.local:8001/functions/call [policy:cuga_tool_registry engine:l7]
+
+  --- Tools called      [cuga-demo] ---
+  17:09:25.199  [tool]  crm_get_contacts_contacts_get  skip=900  limit=300
+
+  # Step 2: uv installs tomli; only the uv binary is allowed to reach pypi.org.
+  --- Policy decisions  [execd sandbox] ---
+  17:09:25.227  [policy/execd]  ALLOWED /usr/bin/python3.12(36730) -> POST http://cuga-demo.sandbox-michal1.svc.cluster.local:8001/functions/call [policy:cuga_tool_registry engine:opa]
+  17:09:25.318  [policy/execd]  ALLOWED /opt/app-root/bin/uv(36763) -> pypi.org:443 [policy:python_package_index engine:opa]
+  17:09:25.394  [policy/execd]  ALLOWED GET http://pypi.org:443/simple/tomli/ [policy:python_package_index engine:l7]
+
+  # CUGA heartbeats and LLM calls continue while execd finishes all three steps.
+  --- Policy decisions  [cuga-demo sandbox] ---
+  17:09:25.934  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:27.230  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:28.375  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:29.707  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:30.628  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/code [policy:cuga_code_sandbox engine:opa]
+  17:09:30.687  [policy/cuga]  ALLOWED inference.local:443
+  17:09:30.867  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:32.207  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:33.423  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:34.720  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:35.915  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:36.313  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/code [policy:cuga_code_sandbox engine:l7]
+  17:09:37.214  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:38.358  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:39.713  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:40.874  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:41.648  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/code [policy:cuga_code_sandbox engine:opa]
+  17:09:41.698  [policy/cuga]  ALLOWED inference.local:443
+  17:09:42.203  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:43.341  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:44.717  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:45.846  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:47.210  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:48.355  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:49.703  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:51.121  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:52.213  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:53.355  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:54.726  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:55.845  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:57.198  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:09:58.328  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:09:59.717  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:10:00.865  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:10:02.223  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:10:03.341  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:10:04.716  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:10:05.845  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:10:05.900  [policy/cuga]  ALLOWED inference.local:443
+  17:10:07.223  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:10:08.355  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:10:09.707  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:10:10.842  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:10:12.214  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:10:13.349  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:10:14.721  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:10:15.865  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+  17:10:17.203  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:l7]
+  17:10:18.339  [policy/cuga]  ALLOWED /usr/bin/python3.12(87) -> POST http://execd-service.sandbox-michal1.svc.cluster.local:44772/command [policy:cuga_code_sandbox engine:opa]
+
+# All three output files are present in the per-thread workspace directory.
+==> Workspace  [openshell--code-exec:/workspace/smoke-1788282553]
+  /workspace/smoke-1788282553
+  /workspace/smoke-1788282553/.venv
+  /workspace/smoke-1788282553/config.toml
+  /workspace/smoke-1788282553/contacts_export.txt
+
+File contents (<=2 KB):
+  --- /workspace/smoke-1788282553/config.toml ---
   version = "1.0"
-
-  --- /workspace/smoke-1788170886/contacts_export.txt ---  (4134 bytes - showing first 5 lines)
+  --- /workspace/smoke-1788282553/contacts_export.txt ---  (13683 bytes — showing first 5 lines)
   John Smith
   Jane Johnson
   Michael Williams
   Sarah Brown
   David Jones
 
+# Assert on actual file contents, not model output; all three pass.
 ==> Assertions
-  ok  Python code → file write        (/workspace/smoke-1788170886/contacts_export.txt exists)
-  ok  pip install + Python → config.toml  (/workspace/smoke-1788170886/config.toml contains 'version')
-  ok  run_command (shell) → contacts_export.txt marker  (contains 'smoke-test ok')
+  ok  Python code → file write  (/workspace/smoke-1788282553/contacts_export.txt exists)
+  ok  pip install + Python → config.toml  (/workspace/smoke-1788282553/config.toml contains 'version')
+  ok  run_command (shell) → contacts_export.txt marker  (/workspace/smoke-1788282553/contacts_export.txt contains 'smoke-test ok')
 
-  ok  Done.  (log saved to .../sandbox/logs/smoke-20260831-120759.log)
+  ok  Done.  (log saved to /Users/michal/git/SIL/cuga-openshell/sandbox/logs/smoke-20260901-190905.log)
 ```
 
 The install is attributed to `/opt/app-root/bin/uv` by path and PID, allowed by
