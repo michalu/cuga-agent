@@ -2,9 +2,7 @@
 
 ## 1. Purpose
 
-CUGA generates and executes Python code on behalf of users. That requires two
-independent containment boundaries. This document describes the overall system
-architecture, the rationale for key decisions, and the differences between the
+CUGA generates and executes Python code on behalf of users. This document describes the overall system architecture, the rationale for key decisions, and the differences between the
 two supported deployment targets.
 
 OpenShell is the policy enforcement layer that wraps both the CUGA agent process and the execd code execution pod in private network namespaces - all inbound traffic is routed exclusively through the gateway, all outbound connections are checked per binary against a declared allowlist, each pod's filesystem is locked to declared read/write paths via Landlock, the LLM API key is injected at the gateway so it never reaches either pod, and every connection decision is emitted as a structured audit event.
@@ -80,14 +78,17 @@ routes by `Host` header into the correct netns.
 
 ## 3. Two-boundary security model
 
-OpenShell is designed to wrap entire autonomous agent processes - its design
+OpenShell is designed to wrap entire autonomous agent processes — its design
 center is policy enforcement and isolation for agentic workloads (Watson
-Orchestrate and Red Hat are known reference users for this exact use case). Role
-A applies that capability to CUGA. Role B then adds a second, independent
-boundary specifically around generated code execution.
-
-Whether to run CUGA inside OpenShell (Role A) is a deployment decision. The
-table below shows what each boundary contributes independently.
+Orchestrate and Red Hat are known reference users for this exact use case).
+Our primary goal here is to use it to isolate the code execution sandbox
+(Role B — execd). Wrapping the CUGA agent process itself (Role A) is an
+additional layer that OpenShell naturally supports, but it is a separate
+decision: skipping Role A would simplify the deployment and remove the
+`sandbox-proxy` and Host-header rewriting complexity, at the cost of leaving
+the agent process itself without egress control, filesystem enforcement, or
+LLM key injection. Whether to keep Role A is a deployment decision; the table
+below shows what each boundary contributes independently.
 
 | | Role A - CUGA pod | Role B - execd pod |
 |---|---|---|
