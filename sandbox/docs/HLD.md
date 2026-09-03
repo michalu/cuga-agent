@@ -5,7 +5,7 @@
 CUGA generates and executes Python code on behalf of users. This document describes the overall system architecture, the rationale for key decisions, and the differences between the
 two supported deployment targets.
 
-OpenShell is the policy enforcement layer that wraps both the CUGA agent process and the execd code execution pod in private network namespaces - all inbound traffic is routed exclusively through the gateway, all outbound connections are checked per binary against a declared allowlist, each pod's filesystem is locked to declared read/write paths via Landlock, the LLM API key is injected at the gateway so it never reaches either pod, and every connection decision is emitted as a structured audit event.
+OpenShell is the policy enforcement layer. In this POC it is used to wrap both the CUGA agent process and the execd code execution pod in private network namespaces - all inbound traffic is routed exclusively through the gateway, all outbound connections are checked per binary against a declared allowlist, each pod's filesystem is locked to declared read/write paths via Landlock, the LLM API key is injected at the gateway so it never reaches either pod, and every connection decision is emitted as a structured audit event.
 
 ---
 
@@ -92,7 +92,7 @@ below shows what each boundary contributes independently.
 
 | | Role A - CUGA pod | Role B - execd pod |
 |---|---|---|
-| **Wraps** | Entire CUGA agent process | Generated code (Jupyter kernel) |
+| **Wraps** | Entire CUGA agent process | Generated code execution (Jupyter kernel) |
 | **LLM key** | Gateway injects on egress; never reaches pod env | No access to inference endpoint at all |
 | **Filesystem** | `/app` read-only; writes to `/sandbox` and `/tmp` only | Writes to `/workspace/<thread>`; agent DBs unreachable |
 | **Egress** | Per-binary allowlist: inference + execd only | Per-binary allowlist: tool registry + PyPI only |
